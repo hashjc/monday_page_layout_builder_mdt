@@ -31,7 +31,6 @@ const App = () => {
     // Queries all boards in workspace and finds boards with connected board columns
     // that link back to the current board. Returns results as "BoardName - ColumnLabel"
     const fetchChildBoards = async (currentBoardId) => {
-        console.log("Fetching child boards");
         setLoadingChildBoards(true);
         try {
             // First, get all boards
@@ -123,7 +122,6 @@ const App = () => {
                   `;
 
                     const result = await monday.api(query);
-                    console.log("Columns ", result);
                     if (result.data && result.data.boards && result.data.boards.length > 0) {
                         const unsortedColumns = result.data.boards[0].columns || [];
 
@@ -187,7 +185,7 @@ const App = () => {
             </Box>
 
             {/* MAIN LAYOUT - Sidebar + Content Area */}
-            <Flex className="metadata-layout">
+            <Flex className="metadata-layout" align="Start">
                 {/* LEFT SIDEBAR - Navigation */}
                 <Box className="sidebar">
                     {/* Columns Navigation Item */}
@@ -261,7 +259,7 @@ const App = () => {
                                                 >
                                                     <Flex align="center" justify="space-between">
                                                         <Text type="paragraph" color="var(--primary-text-color)">
-                                                            <strong>{column.title}</strong> <em>({column.type})</em>
+                                                            <strong>{column.title}</strong>
                                                         </Text>
                                                         {hoveredColumnId === column.id && (
                                                             <Text type="paragraph" color="var(--secondary-text-color)">
