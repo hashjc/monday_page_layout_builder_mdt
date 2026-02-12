@@ -27,6 +27,7 @@ body {
   display: flex;
   flex-direction: column;
   gap: 8px;
+  background-color: var(--primary-background-color);
 }
 
 .nav-item {
@@ -36,33 +37,33 @@ body {
   transition: all 0.2s ease;
   background-color: var(--primary-background-color);
   border: 1px solid transparent;
-  color: var(--secondary-text-color);
   white-space: nowrap;
+  pointer-events: auto;
+  user-select: none;
 }
 
 .nav-item:hover {
-  background-color: rgba(128, 128, 128, 0.08);
+  background-color: rgba(0, 115, 234, 0.08);
   border-color: var(--ui-border-color);
 }
 
 .nav-item.active {
   background-color: var(--secondary-background-color);
-  border-color: var(--primary-text-color);
-  color: var(--primary-text-color);
+  border-color: var(--primary-color, #0073ea);
   font-weight: bold;
 }
 
 .main-content {
   flex: 1;
-  padding: 16px 24px;
+  padding: 24px;
   overflow-y: auto;
 }
 
 .metadata-section {
-  background-color: rgba(128, 128, 128, 0.08);
+  background-color: var(--primary-background-color);
   border-radius: 8px;
-  opacity: 0.7;
-  padding: 0;
+  /* REMOVED: opacity: 0.7 - this was making everything transparent */
+  /* REMOVED: padding: 0 - this was overriding the padding */
 }
 
 .columns-container {
@@ -74,9 +75,9 @@ body {
 .column-card {
   cursor: pointer;
   transition: all 0.2s ease;
+  margin-bottom: 8px;
 }
 
 .column-card:hover {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
-

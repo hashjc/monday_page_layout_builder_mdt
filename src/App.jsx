@@ -10,17 +10,24 @@ import { Heading, Text, Loader, Box, Flex } from "@vibe/core";
 const monday = mondaySdk();
 
 const App = () => {
-  const [context, setContext] = useState();
-  const [boardId, setBoardId] = useState(null);
-  const [columns, setColumns] = useState([]);
-  const [loading, setLoading] = useState(false);
-  const [hoveredColumnId, setHoveredColumnId] = useState(null);
-  const [childBoards, setChildBoards] = useState([]);
-  const [loadingChildBoards, setLoadingChildBoards] = useState(false);
-  const [hoveredChildBoardId, setHoveredChildBoardId] = useState(null);
-  const [selectedSection, setSelectedSection] = useState("columns");
+  // ============================================
+  // STATE MANAGEMENT
+  // ============================================
+  const [context, setContext] = useState(); // Board context from monday
+  const [boardId, setBoardId] = useState(null); // Current board ID
+  const [columns, setColumns] = useState([]); // List of columns in current board
+  const [loading, setLoading] = useState(false); // Loading state for columns
+  const [hoveredColumnId, setHoveredColumnId] = useState(null); // Track hovered column for ID display
+  const [childBoards, setChildBoards] = useState([]); // Boards that link to current board
+  const [loadingChildBoards, setLoadingChildBoards] = useState(false); // Loading state for child boards
+  const [hoveredChildBoardId, setHoveredChildBoardId] = useState(null); // Track hovered child board
+  const [selectedSection, setSelectedSection] = useState("columns"); // Track which sidebar section is active
 
-  // Function to fetch child boards
+  // ============================================
+  // FETCH CHILD BOARDS FUNCTION
+  // ============================================
+  // Queries all boards in workspace and finds boards with connected board columns
+  // that link back to the current board. Returns results as "BoardName - ColumnLabel"
   const fetchChildBoards = async (currentBoardId) => {
       console.log("Fetching child boards");
       setLoadingChildBoards(true);
@@ -80,6 +87,11 @@ const App = () => {
       }
   };
 
+  // ============================================
+  // INITIALIZE APP - FETCH BOARD DATA
+  // ============================================
+  // Executes on component mount. Listens for board context from monday,
+  // then fetches columns and child boards for the current board.
   useEffect(() => {
       // Notice this method notifies the monday platform that user gains a first value in an app.
       // Read more about it here: https://developer.monday.com/apps/docs/mondayexecute#value-created-for-user/
@@ -137,6 +149,7 @@ const App = () => {
 
   return (
       <Box className="App" backgroundColor="var(--primary-background-color)">
+          {/* HEADER - Display board info and user */}
           <Box marginBottom="large" padding="medium">
               <Heading type="h1" weight="bold" marginBottom="medium">
                   Monday Board Info
@@ -159,27 +172,43 @@ const App = () => {
               )}
           </Box>
 
+          {/* MAIN LAYOUT - Sidebar + Content Area */}
           <Flex className="metadata-layout">
+              {/* LEFT SIDEBAR - Navigation */}
               <Box className="sidebar">
-                  <Box className={`nav-item ${selectedSection === "columns" ? "active" : ""}`} onClick={() => setSelectedSection("columns")}>
+                  {/* Columns Navigation Item */}
+                  <div
+                      className={`nav-item ${selectedSection === "columns" ? "active" : ""}`}
+                      onClick={() => setSelectedSection("columns")}
+                      style={{ cursor: "pointer" }}
+                  >
                       <Text type="paragraph" weight="bold">
                           Board Columns
                       </Text>
-                  </Box>
-                  <Box className={`nav-item ${selectedSection === "childBoards" ? "active" : ""}`} onClick={() => setSelectedSection("childBoards")}>
+                  </div>
+
+                  {/* Child Boards Navigation Item */}
+                  <div
+                      className={`nav-item ${selectedSection === "childBoards" ? "active" : ""}`}
+                      onClick={() => setSelectedSection("childBoards")}
+                      style={{ cursor: "pointer" }}
+                  >
                       <Text type="paragraph" weight="bold">
                           Child Boards
                       </Text>
-                  </Box>
+                  </div>
               </Box>
 
+              {/* RIGHT CONTENT AREA - Metadata Section */}
               <Box className="main-content metadata-section">
+                  {/* COLUMNS VIEW */}
                   {selectedSection === "columns" && (
                       <Box>
                           <Heading type="h2" weight="bold" marginBottom="medium">
                               Board Columns
                           </Heading>
 
+                          {/* Loading state while fetching columns */}
                           {loading ? (
                               <Flex align="center" gap="small">
                                   <Loader />
@@ -188,6 +217,7 @@ const App = () => {
                                   </Text>
                               </Flex>
                           ) : columns && columns.length > 0 ? (
+                              // Display columns in grid layout - hover to see column ID
                               <Box className="columns-container">
                                   {columns.map((column) => (
                                       <div
@@ -224,12 +254,14 @@ const App = () => {
                       </Box>
                   )}
 
+                  {/* CHILD BOARDS VIEW */}
                   {selectedSection === "childBoards" && (
                       <Box>
                           <Heading type="h2" weight="bold" marginBottom="medium">
                               Child Boards
                           </Heading>
 
+                          {/* Loading state while fetching child boards */}
                           {loadingChildBoards ? (
                               <Flex align="center" gap="small">
                                   <Loader />
@@ -238,6 +270,8 @@ const App = () => {
                                   </Text>
                               </Flex>
                           ) : childBoards && childBoards.length > 0 ? (
+                              // Display child boards in grid layout - hover to see board ID
+                              // Format: "BoardName - ColumnLabel"
                               <Box className="columns-container">
                                   {childBoards.map((item) => (
                                       <div
