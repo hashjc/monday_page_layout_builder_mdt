@@ -18,6 +18,7 @@ const App = () => {
   const [childBoards, setChildBoards] = useState([]);
   const [loadingChildBoards, setLoadingChildBoards] = useState(false);
   const [hoveredChildBoardId, setHoveredChildBoardId] = useState(null);
+  const [selectedSection, setSelectedSection] = useState("columns");
 
   // Function to fetch child boards
   const fetchChildBoards = async (currentBoardId) => {
@@ -135,8 +136,8 @@ const App = () => {
   }, []);
 
   return (
-      <Box className="App" padding="medium" backgroundColor="var(--primary-background-color)">
-          <Box marginBottom="large">
+      <Box className="App" backgroundColor="var(--primary-background-color)">
+          <Box marginBottom="large" padding="medium">
               <Heading type="h1" weight="bold" marginBottom="medium">
                   Monday Board Info
               </Heading>
@@ -158,101 +159,122 @@ const App = () => {
               )}
           </Box>
 
-          <Box marginBottom="large" className="metadata-section">
-              <Heading type="h2" weight="bold" marginBottom="medium">
-                  Board Columns
-              </Heading>
-
-              {loading ? (
-                  <Flex align="center" gap="small">
-                      <Loader />
-                      <Text type="paragraph" color="var(--primary-text-color)">
-                          Loading columns...
+          <Flex className="metadata-layout">
+              <Box className="sidebar">
+                  <Box className={`nav-item ${selectedSection === "columns" ? "active" : ""}`} onClick={() => setSelectedSection("columns")}>
+                      <Text type="paragraph" weight="bold">
+                          Board Columns
                       </Text>
-                  </Flex>
-              ) : columns && columns.length > 0 ? (
-                  <Box className="columns-container">
-                      {columns.map((column) => (
-                          <div
-                              key={column.id}
-                              onMouseEnter={() => setHoveredColumnId(column.id)}
-                              onMouseLeave={() => setHoveredColumnId(null)}
-                              className="column-card"
-                          >
-                              <Box
-                                  padding="small"
-                                  backgroundColor="var(--secondary-background-color)"
-                                  border="1px solid var(--ui-border-color)"
-                                  borderRadius="var(--border-radius-small)"
-                              >
-                                  <Flex align="center" justify="space-between">
-                                      <Text type="paragraph" color="var(--primary-text-color)">
-                                          <strong>{column.title}</strong> <em>({column.type})</em>
-                                      </Text>
-                                      {hoveredColumnId === column.id && (
-                                          <Text type="paragraph" color="var(--secondary-text-color)">
-                                              ID: {column.id}
-                                          </Text>
-                                      )}
-                                  </Flex>
-                              </Box>
-                          </div>
-                      ))}
                   </Box>
-              ) : (
-                  <Text type="paragraph" color="var(--secondary-text-color)">
-                      No columns found or board not yet loaded.
-                  </Text>
-              )}
-          </Box>
-
-          <Box marginBottom="large" className="metadata-section">
-              <Heading type="h2" weight="bold" marginBottom="medium">
-                  Child Boards
-              </Heading>
-
-              {loadingChildBoards ? (
-                  <Flex align="center" gap="small">
-                      <Loader />
-                      <Text type="paragraph" color="var(--primary-text-color)">
-                          Loading child boards...
+                  <Box className={`nav-item ${selectedSection === "childBoards" ? "active" : ""}`} onClick={() => setSelectedSection("childBoards")}>
+                      <Text type="paragraph" weight="bold">
+                          Child Boards
                       </Text>
-                  </Flex>
-              ) : childBoards && childBoards.length > 0 ? (
-                  <Box className="columns-container">
-                      {childBoards.map((item) => (
-                          <div
-                              key={item.id}
-                              onMouseEnter={() => setHoveredChildBoardId(item.id)}
-                              onMouseLeave={() => setHoveredChildBoardId(null)}
-                              className="column-card"
-                          >
-                              <Box
-                                  padding="small"
-                                  backgroundColor="var(--secondary-background-color)"
-                                  border="1px solid var(--ui-border-color)"
-                                  borderRadius="var(--border-radius-small)"
-                              >
-                                  <Flex align="center" justify="space-between">
-                                      <Text type="paragraph" color="var(--primary-text-color)">
-                                          <strong>{item.label}</strong>
-                                      </Text>
-                                      {hoveredChildBoardId === item.id && (
-                                          <Text type="paragraph" color="var(--secondary-text-color)">
-                                              Board: {item.boardId}
-                                          </Text>
-                                      )}
-                                  </Flex>
-                              </Box>
-                          </div>
-                      ))}
                   </Box>
-              ) : (
-                  <Text type="paragraph" color="var(--secondary-text-color)">
-                      No child boards found.
-                  </Text>
-              )}
-          </Box>
+              </Box>
+
+              <Box className="main-content metadata-section">
+                  {selectedSection === "columns" && (
+                      <Box>
+                          <Heading type="h2" weight="bold" marginBottom="medium">
+                              Board Columns
+                          </Heading>
+
+                          {loading ? (
+                              <Flex align="center" gap="small">
+                                  <Loader />
+                                  <Text type="paragraph" color="var(--primary-text-color)">
+                                      Loading columns...
+                                  </Text>
+                              </Flex>
+                          ) : columns && columns.length > 0 ? (
+                              <Box className="columns-container">
+                                  {columns.map((column) => (
+                                      <div
+                                          key={column.id}
+                                          onMouseEnter={() => setHoveredColumnId(column.id)}
+                                          onMouseLeave={() => setHoveredColumnId(null)}
+                                          className="column-card"
+                                      >
+                                          <Box
+                                              padding="small"
+                                              backgroundColor="var(--secondary-background-color)"
+                                              border="1px solid var(--ui-border-color)"
+                                              borderRadius="var(--border-radius-small)"
+                                          >
+                                              <Flex align="center" justify="space-between">
+                                                  <Text type="paragraph" color="var(--primary-text-color)">
+                                                      <strong>{column.title}</strong> <em>({column.type})</em>
+                                                  </Text>
+                                                  {hoveredColumnId === column.id && (
+                                                      <Text type="paragraph" color="var(--secondary-text-color)">
+                                                          ID: {column.id}
+                                                      </Text>
+                                                  )}
+                                              </Flex>
+                                          </Box>
+                                      </div>
+                                  ))}
+                              </Box>
+                          ) : (
+                              <Text type="paragraph" color="var(--secondary-text-color)">
+                                  No columns found or board not yet loaded.
+                              </Text>
+                          )}
+                      </Box>
+                  )}
+
+                  {selectedSection === "childBoards" && (
+                      <Box>
+                          <Heading type="h2" weight="bold" marginBottom="medium">
+                              Child Boards
+                          </Heading>
+
+                          {loadingChildBoards ? (
+                              <Flex align="center" gap="small">
+                                  <Loader />
+                                  <Text type="paragraph" color="var(--primary-text-color)">
+                                      Loading child boards...
+                                  </Text>
+                              </Flex>
+                          ) : childBoards && childBoards.length > 0 ? (
+                              <Box className="columns-container">
+                                  {childBoards.map((item) => (
+                                      <div
+                                          key={item.id}
+                                          onMouseEnter={() => setHoveredChildBoardId(item.id)}
+                                          onMouseLeave={() => setHoveredChildBoardId(null)}
+                                          className="column-card"
+                                      >
+                                          <Box
+                                              padding="small"
+                                              backgroundColor="var(--secondary-background-color)"
+                                              border="1px solid var(--ui-border-color)"
+                                              borderRadius="var(--border-radius-small)"
+                                          >
+                                              <Flex align="center" justify="space-between">
+                                                  <Text type="paragraph" color="var(--primary-text-color)">
+                                                      <strong>{item.label}</strong>
+                                                  </Text>
+                                                  {hoveredChildBoardId === item.id && (
+                                                      <Text type="paragraph" color="var(--secondary-text-color)">
+                                                          Board: {item.boardId}
+                                                      </Text>
+                                                  )}
+                                              </Flex>
+                                          </Box>
+                                      </div>
+                                  ))}
+                              </Box>
+                          ) : (
+                              <Text type="paragraph" color="var(--secondary-text-color)">
+                                  No child boards found.
+                              </Text>
+                          )}
+                      </Box>
+                  )}
+              </Box>
+          </Flex>
       </Box>
   );
 };
