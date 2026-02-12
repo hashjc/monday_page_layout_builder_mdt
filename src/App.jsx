@@ -1,15 +1,17 @@
 import React from "react";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import "./App.css";
 import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 //Explore more Monday React Components here: https://vibe.monday.com/
-import { Heading, Text, Loader, Box, Flex, TextField } from "@vibe/core";
+import { Heading, Text, Loader, Box, Flex, TextField, IconButton, Button, TextArea, Dropdown } from "@vibe/core";
+import { Settings } from "@vibe/icons";
 
 // Usage of mondaySDK example, for more information visit here: https://developer.monday.com/apps/docs/introduction-to-the-sdk/
 const monday = mondaySdk();
 
 const App = () => {
+    console.log("App start");
     // ============================================
     // STATE MANAGEMENT
     // ============================================
@@ -24,6 +26,11 @@ const App = () => {
     const [selectedSection, setSelectedSection] = useState("columns"); // Track which sidebar section is active
     const [searchColumnsQuery, setSearchColumnsQuery] = useState(""); // Search query for columns
     const [searchChildBoardsQuery, setSearchChildBoardsQuery] = useState(""); // Search query for child boards
+    const [isAdmin, setIsAdmin] = useState(false); // Is current user board admin/owner
+    const [showAdminPanel, setShowAdminPanel] = useState(false); // Show/hide admin customization panel
+    const [formConfig, setFormConfig] = useState(null); // Form configuration (sections and fields)
+    const [loadingFormConfig, setLoadingFormConfig] = useState(false); // Loading state for form config
+    const [formData, setFormData] = useState({}); // Form field values being filled by user
 
     // ============================================
     // FETCH CHILD BOARDS FUNCTION
@@ -89,6 +96,144 @@ const App = () => {
     };
 
     // ============================================
+    // FORM CONFIG FUNCTIONS
+    // ============================================
+    // Generate default form config from board columns (all fields in one section, sorted alphabetically)
+    const generateDefaultFormConfig = useCallback((boardColumns) => {
+        const sortedFields = [...boardColumns]
+            .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
+            .map((col) => ({
+                id: col.id,
+                label: col.title,
+                type: mapColumnTypeToFieldType(col.type),
+                required: false,
+                columnId: col.id,
+            }));
+
+        return {
+            sections: [
+                {
+                    id: "default",
+                    title: "Form Fields",
+                    fields: sortedFields,
+                },
+            ],
+        };
+    }, []);
+
+    // Map monday column types to form field types
+    const mapColumnTypeToFieldType = (columnType) => {
+        const typeMap = {
+            text: "text",
+            long_text: "textarea",
+            numbers: "number",
+            date: "date",
+            status: "select",
+            dropdown: "select",
+            checkbox: "checkbox",
+            email: "email",
+            phone: "phone",
+        };
+        return typeMap[columnType] || "text";
+    };
+
+    // Load form config from instance settings, fallback to default
+    const loadFormConfig = async () => {
+        setLoadingFormConfig(true);
+        try {
+            // Try to get saved config from instance settings
+            const savedConfig = await monday.execute("getData", { key: "formConfig" });
+            if (savedConfig && savedConfig.data && savedConfig.data.value) {
+                const parsedConfig = JSON.parse(savedConfig.data.value);
+                setFormConfig(parsedConfig);
+            } else {
+                // Use default config if no saved config exists
+                if (columns.length > 0) {
+                    const defaultConfig = generateDefaultFormConfig(columns);
+                    setFormConfig(defaultConfig);
+                }
+            }
+        } catch (error) {
+            console.warn("Could not load form config, using default:", error);
+            // Fallback to default if loading fails
+            if (columns.length > 0) {
+                const defaultConfig = generateDefaultFormConfig(columns);
+                setFormConfig(defaultConfig);
+            }
+        } finally {
+            setLoadingFormConfig(false);
+        }
+    };
+
+    // Save form config to instance settings
+    const saveFormConfig = async (configToSave) => {
+        try {
+            await monday.execute("setData", {
+                key: "formConfig",
+                value: JSON.stringify(configToSave),
+            });
+            console.log("Form config saved successfully");
+        } catch (error) {
+            console.error("Error saving form config:", error);
+        }
+    };
+
+    // ============================================
+    // FORM FIELD RENDERING
+    // ============================================
+    // Render individual form field based on type
+    const renderFormField = (field) => {
+        const value = formData[field.id] || "";
+        const onChange = (newValue) => {
+            setFormData({ ...formData, [field.id]: newValue });
+        };
+
+        switch (field.type) {
+            case "textarea":
+                return <TextArea key={field.id} label={field.label} value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
+            case "number":
+                return <TextField key={field.id} label={field.label} type="number" value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
+            case "date":
+                return <TextField key={field.id} label={field.label} type="date" value={value} onChange={onChange} />;
+            case "email":
+                return <TextField key={field.id} label={field.label} type="email" value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
+            case "phone":
+                return <TextField key={field.id} label={field.label} type="tel" value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
+            case "checkbox":
+                return (
+                    <Box key={field.id} marginBottom="medium">
+                        <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
+                            <input
+                                type="checkbox"
+                                checked={value === true || value === "true"}
+                                onChange={(e) => onChange(e.target.checked)}
+                                style={{ marginRight: "8px" }}
+                            />
+                            <Text type="paragraph">{field.label}</Text>
+                        </label>
+                    </Box>
+                );
+            case "select":
+                return (
+                    <Dropdown
+                        key={field.id}
+                        label={field.label}
+                        value={value}
+                        onChange={onChange}
+                        options={[
+                            { label: "Select...", value: "" },
+                            { label: "Option 1", value: "option1" },
+                            { label: "Option 2", value: "option2" },
+                        ]}
+                    />
+                );
+            case "text":
+            default:
+                return <TextField key={field.id} label={field.label} value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
+        }
+    };
+
+    // ============================================
     // INITIALIZE APP - FETCH BOARD DATA
     // ============================================
     // Executes on component mount. Listens for board context from monday,
@@ -101,6 +246,19 @@ const App = () => {
         // Listen for context changes
         monday.listen("context", async (res) => {
             setContext(res.data);
+
+            // ============================================
+            // DETECT ADMIN USER
+            // ============================================
+            // Check if user is board admin/owner
+            // In monday context, check user permissions or board ownership
+            console.log("User information ", res);
+            if (res.data && res.data.user) {
+                // User is considered admin if they have "owner" or "admin" role
+                // For now, using a simple check - in production, query user's board permissions
+                const userRole = res.data.user.role || res.data.user.account_owner;
+                setIsAdmin(userRole === "owner" || userRole === "admin" || res.data.user.account_owner === true);
+            }
 
             // Extract board ID from context
             if (res.data && res.data.boardId) {
@@ -135,6 +293,11 @@ const App = () => {
 
                         setColumns(sortedColumns);
 
+                        // Load form config (either saved or default)
+                        // Note: We need to use the sortedColumns here directly since state updates are async
+                        const defaultConfig = generateDefaultFormConfig(sortedColumns);
+                        setFormConfig(defaultConfig);
+
                         // Now fetch child boards (boards that reference this board via connected board columns)
                         await fetchChildBoards(res.data.boardId);
                     }
@@ -145,7 +308,7 @@ const App = () => {
                 }
             }
         });
-    }, []);
+    }, [generateDefaultFormConfig]);
 
     // ============================================
     // HELPER FUNCTIONS - FILTERING
@@ -163,9 +326,22 @@ const App = () => {
         <Box className="App" backgroundColor="var(--primary-background-color)">
             {/* HEADER - Display board info and user */}
             <Box marginBottom="large" padding="medium">
-                <Heading type="h1" weight="bold" marginBottom="medium">
-                    Monday Board Info
-                </Heading>
+                {/* Header with title and admin gear icon */}
+                <Flex align="center" justify="space-between" marginBottom="medium">
+                    <Heading type="h1" weight="bold">
+                        Monday Board Info
+                    </Heading>
+                    {/* Admin Gear Icon - Only visible to admins */}
+                    {isAdmin && (
+                        <IconButton
+                            kind="tertiary"
+                            size="large"
+                            icon={Settings}
+                            onClick={() => setShowAdminPanel(!showAdminPanel)}
+                            title="Customize form (Admin only)"
+                        />
+                    )}
+                </Flex>
 
                 {context && (
                     <Box marginBottom="medium">
@@ -183,6 +359,36 @@ const App = () => {
                     </Box>
                 )}
             </Box>
+
+            {/* ADMIN PANEL - Shows when admin clicks gear icon */}
+            {showAdminPanel && isAdmin && (
+                <Box
+                    padding="medium"
+                    marginBottom="medium"
+                    style={{ backgroundColor: "rgba(0, 115, 234, 0.1)", border: "1px solid var(--ui-border-color)", borderRadius: "8px" }}
+                >
+                    <Flex align="center" justify="space-between" marginBottom="medium">
+                        <Heading type="h3" weight="bold">
+                            Form Customization (Admin Panel)
+                        </Heading>
+                        <button
+                            onClick={() => setShowAdminPanel(false)}
+                            style={{
+                                cursor: "pointer",
+                                padding: "4px 12px",
+                                border: "1px solid var(--ui-border-color)",
+                                borderRadius: "4px",
+                                backgroundColor: "transparent",
+                            }}
+                        >
+                            Close
+                        </button>
+                    </Flex>
+                    <Text type="paragraph" color="var(--secondary-text-color)">
+                        Admin panel will appear here. You can customize the form by adding/removing fields.
+                    </Text>
+                </Box>
+            )}
 
             {/* MAIN LAYOUT - Sidebar + Content Area */}
             <Flex className="metadata-layout" align="Start">
@@ -357,6 +563,70 @@ const App = () => {
                     )}
                 </Box>
             </Flex>
+
+            {/* LAYOUT SECTION - Full width drag-and-drop form area */}
+            <Box className="layout-section">
+                <Box padding="medium" borderTop="1px solid var(--ui-border-color)">
+                    <Heading type="h2" weight="bold" marginBottom="medium">
+                        Layout
+                    </Heading>
+
+                    {loadingFormConfig ? (
+                        <Flex align="center" gap="small">
+                            <Loader />
+                            <Text type="paragraph" color="var(--primary-text-color)">
+                                Loading form...
+                            </Text>
+                        </Flex>
+                    ) : formConfig && formConfig.sections ? (
+                        <Box className="form-container">
+                            {formConfig.sections.map((section) => (
+                                <Box key={section.id} marginBottom="large">
+                                    {/* Section title */}
+                                    <Heading type="h3" weight="bold" marginBottom="medium">
+                                        {section.title}
+                                    </Heading>
+
+                                    {/* Section fields in responsive grid */}
+                                    <Box className="form-fields">
+                                        {section.fields && section.fields.length > 0 ? (
+                                            section.fields.map((field) => (
+                                                <Box key={field.id} className="form-field-wrapper">
+                                                    {renderFormField(field)}
+                                                </Box>
+                                            ))
+                                        ) : (
+                                            <Text type="paragraph" color="var(--secondary-text-color)">
+                                                No fields in this section.
+                                            </Text>
+                                        )}
+                                    </Box>
+                                </Box>
+                            ))}
+
+                            {/* Submit button */}
+                            <Flex gap="medium" marginTop="large">
+                                <Button
+                                    kind="primary"
+                                    onClick={() => {
+                                        console.log("Form submitted with data:", formData);
+                                        // TODO: Implement form submission to create board item
+                                    }}
+                                >
+                                    Submit Form
+                                </Button>
+                                <Button kind="secondary" onClick={() => setFormData({})}>
+                                    Clear Form
+                                </Button>
+                            </Flex>
+                        </Box>
+                    ) : (
+                        <Text type="paragraph" color="var(--secondary-text-color)">
+                            Form could not be loaded.
+                        </Text>
+                    )}
+                </Box>
+            </Box>
         </Box>
     );
 };
