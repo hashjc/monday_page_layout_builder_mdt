@@ -245,32 +245,38 @@ const App = () => {
                             ) : columns && columns.length > 0 ? (
                                 // Display columns in grid layout - hover to see column ID
                                 <Box className="columns-container">
-                                    {columns.map((column) => (
-                                        <div
-                                            key={column.id}
-                                            onMouseEnter={() => setHoveredColumnId(column.id)}
-                                            onMouseLeave={() => setHoveredColumnId(null)}
-                                            className="column-card"
-                                        >
-                                            <Box
-                                                padding="small"
-                                                backgroundColor="var(--secondary-background-color)"
-                                                border="1px solid var(--ui-border-color)"
-                                                borderRadius="var(--border-radius-small)"
+                                    {filteredColumns.length > 0 ? (
+                                        filteredColumns.map((column) => (
+                                            <div
+                                                key={column.id}
+                                                onMouseEnter={() => setHoveredColumnId(column.id)}
+                                                onMouseLeave={() => setHoveredColumnId(null)}
+                                                className="column-card"
                                             >
-                                                <Flex align="center" justify="space-between">
-                                                    <Text type="paragraph" color="var(--primary-text-color)">
-                                                        <strong>{column.title}</strong> <em>({column.type})</em>
-                                                    </Text>
-                                                    {hoveredColumnId === column.id && (
-                                                        <Text type="paragraph" color="var(--secondary-text-color)">
-                                                            ID: {column.id}
+                                                <Box
+                                                    padding="small"
+                                                    backgroundColor="var(--secondary-background-color)"
+                                                    border="1px solid var(--ui-border-color)"
+                                                    borderRadius="var(--border-radius-small)"
+                                                >
+                                                    <Flex align="center" justify="space-between">
+                                                        <Text type="paragraph" color="var(--primary-text-color)">
+                                                            <strong>{column.title}</strong> <em>({column.type})</em>
                                                         </Text>
-                                                    )}
-                                                </Flex>
-                                            </Box>
-                                        </div>
-                                    ))}
+                                                        {hoveredColumnId === column.id && (
+                                                            <Text type="paragraph" color="var(--secondary-text-color)">
+                                                                ID: {column.id}
+                                                            </Text>
+                                                        )}
+                                                    </Flex>
+                                                </Box>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <Text type="paragraph" color="var(--secondary-text-color)">
+                                            No columns match your search.
+                                        </Text>
+                                    )}
                                 </Box>
                             ) : (
                                 <Text type="paragraph" color="var(--secondary-text-color)">
