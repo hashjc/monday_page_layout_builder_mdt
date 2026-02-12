@@ -31,10 +31,64 @@ const App = () => {
     const [formConfig, setFormConfig] = useState(null); // Form configuration (sections and fields)
     const [loadingFormConfig, setLoadingFormConfig] = useState(false); // Loading state for form config
     const [formData, setFormData] = useState({}); // Form field values being filled by user
+    const [showNewSectionDialog, setShowNewSectionDialog] = useState(false); // Show/hide new section dialog
+    const [newSectionName, setNewSectionName] = useState(""); // Input for new section name
+    const [newSectionNameError, setNewSectionNameError] = useState(""); // Error message for section name validation
 
-    // ============================================
-    // FETCH CHILD BOARDS FUNCTION
-    // ============================================
+    // Handle creating a new section
+    const handleCreateNewSection = () => {
+        // Validate section name
+        if (!newSectionName.trim()) {
+            setNewSectionNameError("Section name is required");
+            return;
+        }
+
+        // Create new section object
+        const newSection = {
+            id: `section-${Date.now()}`, // Generate unique ID based on timestamp
+            title: newSectionName.trim(),
+            fields: [], // New sections start empty
+        };
+
+        // Add new section to form config
+        const updatedFormConfig = {
+            ...formConfig,
+            sections: [...(formConfig.sections || []), newSection],
+        };
+
+        // Update state
+        setFormConfig(updatedFormConfig);
+
+        // Reset dialog
+        setShowNewSectionDialog(false);
+        setNewSectionName("");
+        setNewSectionNameError("");
+
+        console.log("New section created:", newSection);
+    };
+
+    // Handle opening new section dialog
+    const handleOpenNewSectionDialog = () => {
+        setShowNewSectionDialog(true);
+        setNewSectionName("");
+        setNewSectionNameError("");
+    };
+
+    // Handle closing new section dialog
+    const handleCloseNewSectionDialog = () => {
+        setShowNewSectionDialog(false);
+        setNewSectionName("");
+        setNewSectionNameError("");
+    };
+
+    // Handle section name input change
+    const handleNewSectionNameChange = (value) => {
+        setNewSectionName(value);
+        // Clear error when user starts typing
+        if (newSectionNameError) {
+            setNewSectionNameError("");
+        }
+    };
     // Queries all boards in workspace and finds boards with connected board columns
     // that link back to the current board. Returns results as "BoardName - ColumnLabel"
     const fetchChildBoards = async (currentBoardId) => {
@@ -579,10 +633,11 @@ const App = () => {
                     {/* SECTIONS VIEW */}
                     {selectedSection === "sections" && (
                         <Box>
+                            {/*}
                             <Heading type="h2" weight="bold" marginBottom="medium">
                                 Sections
                             </Heading>
-
+                            */}
                             {formConfig && formConfig.sections && formConfig.sections.length > 0 ? (
                                 <Box>
                                     <Box marginBottom="large">
@@ -608,13 +663,7 @@ const App = () => {
                                         ))}
                                     </Box>
 
-                                    <Button
-                                        kind="secondary"
-                                        onClick={() => {
-                                            // TODO: Add new section functionality
-                                            console.log("New Section clicked");
-                                        }}
-                                    >
+                                    <Button kind="secondary" onClick={handleOpenNewSectionDialog}>
                                         + New Section
                                     </Button>
                                 </Box>
@@ -623,13 +672,7 @@ const App = () => {
                                     <Text type="paragraph" color="var(--secondary-text-color)" marginBottom="medium">
                                         No sections created yet.
                                     </Text>
-                                    <Button
-                                        kind="secondary"
-                                        onClick={() => {
-                                            // TODO: Add new section functionality
-                                            console.log("New Section clicked");
-                                        }}
-                                    >
+                                    <Button kind="secondary" onClick={handleOpenNewSectionDialog}>
                                         + New Section
                                     </Button>
                                 </Box>
@@ -721,6 +764,65 @@ const App = () => {
                     )}
                 </Box>
             </Box>
+
+            {/* NEW SECTION DIALOG - Modal for creating new sections */}
+            {showNewSectionDialog && (
+                <Box
+                    style={{
+                        position: "fixed",
+                        top: 0,
+                        left: 0,
+                        right: 0,
+                        bottom: 0,
+                        backgroundColor: "rgba(0, 0, 0, 0.5)",
+                        display: "flex",
+                        alignItems: "center",
+                        justifyContent: "center",
+                        zIndex: 1000,
+                    }}
+                    onClick={handleCloseNewSectionDialog}
+                >
+                    <Box
+                        padding="large"
+                        backgroundColor="var(--primary-background-color)"
+                        borderRadius="12px"
+                        style={{
+                            minWidth: "400px",
+                            boxShadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
+                            position: "relative",
+                            zIndex: 1001,
+                        }}
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        <Heading type="h2" weight="bold" marginBottom="medium">
+                            Create New Section
+                        </Heading>
+
+                        <Box marginBottom="medium">
+                            <TextField
+                                placeholder="Enter section name"
+                                value={newSectionName}
+                                onChange={(value) => handleNewSectionNameChange(value)}
+                                autoFocus
+                            />
+                            {newSectionNameError && (
+                                <Text type="paragraph" color="#d32f2f" size="small" marginTop="small">
+                                    {newSectionNameError}
+                                </Text>
+                            )}
+                        </Box>
+
+                        <Flex gap="medium" justify="flex-end">
+                            <Button kind="secondary" onClick={handleCloseNewSectionDialog}>
+                                Cancel
+                            </Button>
+                            <Button kind="primary" onClick={handleCreateNewSection}>
+                                Create Section
+                            </Button>
+                        </Flex>
+                    </Box>
+                </Box>
+            )}
         </Box>
     );
 };
