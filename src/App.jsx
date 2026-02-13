@@ -4,7 +4,7 @@ import "./App.css";
 import mondaySdk from "monday-sdk-js";
 import "@vibe/core/tokens";
 //Explore more Monday React Components here: https://vibe.monday.com/
-import { Heading, Text, Loader, Box, Flex, TextField, IconButton, Button, TextArea, Dropdown } from "@vibe/core";
+import { Heading, Text, Loader, Box, Flex, TextField, IconButton, Button } from "@vibe/core";
 import { Settings } from "@vibe/icons";
 
 // Usage of mondaySDK example, for more information visit here: https://developer.monday.com/apps/docs/introduction-to-the-sdk/
@@ -23,89 +23,23 @@ const App = () => {
     const [childBoards, setChildBoards] = useState([]); // Boards that link to current board
     const [loadingChildBoards, setLoadingChildBoards] = useState(false); // Loading state for child boards
     const [hoveredChildBoardId, setHoveredChildBoardId] = useState(null); // Track hovered child board
-    const [selectedSection, setSelectedSection] = useState("columns"); // Track which sidebar section is active
+    const [selectedSection, setSelectedSection] = useState("columns"); // Track which sidebar section is active (columns or childBoards only)
     const [searchColumnsQuery, setSearchColumnsQuery] = useState(""); // Search query for columns
     const [searchChildBoardsQuery, setSearchChildBoardsQuery] = useState(""); // Search query for child boards
     const [isAdmin, setIsAdmin] = useState(false); // Is current user board admin/owner
     const [showAdminPanel, setShowAdminPanel] = useState(false); // Show/hide admin customization panel
-    const [formConfig, setFormConfig] = useState(null); // Form configuration (sections and fields)
-    const [loadingFormConfig, setLoadingFormConfig] = useState(false); // Loading state for form config
-    const [formData, setFormData] = useState({}); // Form field values being filled by user
-    const [showNewSectionDialog, setShowNewSectionDialog] = useState(false); // Show/hide new section dialog
-    const [newSectionName, setNewSectionName] = useState(""); // Input for new section name
-    const [newSectionNameError, setNewSectionNameError] = useState(""); // Error message for section name validation
+    const [boardName, setBoardName] = useState("Board"); // Board name for display
 
-    // Save the configuration whenever sections are added or changed
-    const persistFormConfig = async (configToSave) => {
-        try {
-            // Use 'instance' scope so settings are unique to this specific app widget
-            await monday.storage.instance.setItem("formConfig", JSON.stringify(configToSave));
-            console.log("Configuration persisted to Monday storage");
-        } catch (error) {
-            console.error("Error saving to storage:", error);
-        }
-    };
-    // Handle creating a new section
-    const handleCreateNewSection = () => {
-        // Validate section name
-        if (!newSectionName.trim()) {
-            setNewSectionNameError("Section name is required");
-            return;
-        }
+    // Layout - Item Name only
+    const [itemName, setItemName] = useState(""); // Item name input
+    const [submitting, setSubmitting] = useState(false); // Form submission state
 
-        // Create new section object
-        const newSection = {
-            id: `section-${Date.now()}`, // Generate unique ID based on timestamp
-            title: newSectionName.trim(),
-            fields: [], // New sections start empty
-        };
-
-        // Add new section to form config
-        const updatedFormConfig = {
-            ...formConfig,
-            sections: [...(formConfig.sections || []), newSection],
-        };
-
-        // Update state
-        setFormConfig(updatedFormConfig);
-        // 2. Persist to Monday Database
-        persistFormConfig(updatedFormConfig);
-        // Reset dialog
-        setShowNewSectionDialog(false);
-        setNewSectionName("");
-        setNewSectionNameError("");
-
-        console.log("New section created:", newSection);
-    };
-
-    // Handle opening new section dialog
-    const handleOpenNewSectionDialog = () => {
-        setShowNewSectionDialog(true);
-        setNewSectionName("");
-        setNewSectionNameError("");
-    };
-
-    // Handle closing new section dialog
-    const handleCloseNewSectionDialog = () => {
-        setShowNewSectionDialog(false);
-        setNewSectionName("");
-        setNewSectionNameError("");
-    };
-
-    // Handle section name input change
-    const handleNewSectionNameChange = (value) => {
-        setNewSectionName(value);
-        // Clear error when user starts typing
-        if (newSectionNameError) {
-            setNewSectionNameError("");
-        }
-    };
-    // Queries all boards in workspace and finds boards with connected board columns
-    // that link back to the current board. Returns results as "BoardName - ColumnLabel"
+    // ============================================
+    // FETCH CHILD BOARDS FUNCTION
+    // ============================================
     const fetchChildBoards = async (currentBoardId) => {
         setLoadingChildBoards(true);
         try {
-            // First, get all boards
             const boardsQuery = `
             query {
               boards(limit: 500) {
@@ -123,16 +57,14 @@ const App = () => {
 
             const boardsResult = await monday.api(boardsQuery);
             const allBoards = boardsResult.data?.boards || [];
-            // Find boards that have connected board columns linking to the current board
             const childBoardsList = [];
 
             for (const board of allBoards) {
-                if (board.id === currentBoardId) continue; // Skip current board
+                if (board.id === currentBoardId) continue;
                 for (const column of board.columns || []) {
                     if (column.type === "board_relation") {
                         try {
                             const settings = JSON.parse(column.settings_str || "{}");
-                            // Check if this connected board column links to our current board
                             if (settings.boardIds && settings.boardIds.includes(parseInt(currentBoardId))) {
                                 childBoardsList.push({
                                     id: `${board.id}-${column.id}`,
@@ -150,7 +82,6 @@ const App = () => {
                 }
             }
 
-            // Sort by label alphabetically
             childBoardsList.sort((a, b) => a.label.localeCompare(b.label));
             setChildBoards(childBoardsList);
         } catch (error) {
@@ -161,166 +92,17 @@ const App = () => {
     };
 
     // ============================================
-    // FORM CONFIG FUNCTIONS
-    // ============================================
-    // Generate default form config from board columns (all fields in one section, sorted alphabetically)
-    const generateDefaultFormConfig = useCallback((boardColumns, boardName = "Board") => {
-        const sortedFields = [...boardColumns]
-            .sort((a, b) => a.title.toLowerCase().localeCompare(b.title.toLowerCase()))
-            .map((col) => ({
-                id: col.id,
-                label: col.title,
-                type: mapColumnTypeToFieldType(col.type),
-                required: false,
-                columnId: col.id,
-            }));
-
-        return {
-            sections: [
-                {
-                    id: "default",
-                    title: `${boardName} Information`,
-                    fields: sortedFields,
-                },
-            ],
-        };
-    }, []);
-
-    // Map monday column types to form field types
-    const mapColumnTypeToFieldType = (columnType) => {
-        const typeMap = {
-            text: "text",
-            long_text: "textarea",
-            numbers: "number",
-            date: "date",
-            status: "select",
-            dropdown: "select",
-            checkbox: "checkbox",
-            email: "email",
-            phone: "phone",
-        };
-        return typeMap[columnType] || "text";
-    };
-
-    // Load form config from instance settings, fallback to default
-    const loadFormConfig = async () => {
-        setLoadingFormConfig(true);
-        try {
-            // Try to get saved config from instance settings
-            const savedConfig = await monday.execute("getData", { key: "formConfig" });
-            if (savedConfig && savedConfig.data && savedConfig.data.value) {
-                const parsedConfig = JSON.parse(savedConfig.data.value);
-                setFormConfig(parsedConfig);
-            } else {
-                // Use default config if no saved config exists
-                if (columns.length > 0) {
-                    const defaultConfig = generateDefaultFormConfig(columns);
-                    setFormConfig(defaultConfig);
-                }
-            }
-        } catch (error) {
-            console.warn("Could not load form config, using default:", error);
-            // Fallback to default if loading fails
-            if (columns.length > 0) {
-                const defaultConfig = generateDefaultFormConfig(columns);
-                setFormConfig(defaultConfig);
-            }
-        } finally {
-            setLoadingFormConfig(false);
-        }
-    };
-
-    // Save form config to instance settings
-    const saveFormConfig = async (configToSave) => {
-        try {
-            await monday.execute("setData", {
-                key: "formConfig",
-                value: JSON.stringify(configToSave),
-            });
-            console.log("Form config saved successfully");
-        } catch (error) {
-            console.error("Error saving form config:", error);
-        }
-    };
-
-    // ============================================
-    // FORM FIELD RENDERING
-    // ============================================
-    // Render individual form field based on type
-    const renderFormField = (field) => {
-        const value = formData[field.id] || "";
-        const onChange = (newValue) => {
-            setFormData({ ...formData, [field.id]: newValue });
-        };
-
-        switch (field.type) {
-            case "textarea":
-                return <TextArea key={field.id} label={field.label} value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
-            case "number":
-                return <TextField key={field.id} label={field.label} type="number" value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
-            case "date":
-                return <TextField key={field.id} label={field.label} type="date" value={value} onChange={onChange} />;
-            case "email":
-                return <TextField key={field.id} label={field.label} type="email" value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
-            case "phone":
-                return <TextField key={field.id} label={field.label} type="tel" value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
-            case "checkbox":
-                return (
-                    <Box key={field.id} marginBottom="medium">
-                        <label style={{ display: "flex", alignItems: "center", cursor: "pointer" }}>
-                            <input
-                                type="checkbox"
-                                checked={value === true || value === "true"}
-                                onChange={(e) => onChange(e.target.checked)}
-                                style={{ marginRight: "8px" }}
-                            />
-                            <Text type="paragraph">{field.label}</Text>
-                        </label>
-                    </Box>
-                );
-            case "select":
-                return (
-                    <Dropdown
-                        key={field.id}
-                        label={field.label}
-                        value={value}
-                        onChange={onChange}
-                        options={[
-                            { label: "Select...", value: "" },
-                            { label: "Option 1", value: "option1" },
-                            { label: "Option 2", value: "option2" },
-                        ]}
-                    />
-                );
-            case "text":
-            default:
-                return <TextField key={field.id} label={field.label} value={value} onChange={onChange} placeholder={`Enter ${field.label}`} />;
-        }
-    };
-
-    // ============================================
     // INITIALIZE APP - FETCH BOARD DATA
     // ============================================
-    // Executes on component mount. Listens for board context from monday,
-    // then fetches columns and child boards for the current board.
     useEffect(() => {
-        // Notice this method notifies the monday platform that user gains a first value in an app.
-        // Read more about it here: https://developer.monday.com/apps/docs/mondayexecute#value-created-for-user/
         monday.execute("valueCreatedForUser");
 
-        // Listen for context changes
         monday.listen("context", async (res) => {
             setContext(res.data);
 
-            // ============================================
-            // DETECT ADMIN USER
-            // ============================================
-            // Check if user is board admin/owner
-            // In monday context, check user permissions or board ownership
+            // Check if user is admin
             console.log("User information ", res);
             if (res.data && res.data.user) {
-                // User is considered admin if they have "owner" or "admin" role
-                // For now, using a simple check - in production, query user's board permissions
                 const userRole = res.data.user.role || res.data.user.account_owner;
                 setIsAdmin(userRole === "owner" || userRole === "admin" || res.data.user.account_owner === true);
             }
@@ -349,9 +131,12 @@ const App = () => {
                     if (result.data && result.data.boards && result.data.boards.length > 0) {
                         const boardData = result.data.boards[0];
                         const unsortedColumns = boardData.columns || [];
-                        const boardName = boardData.name || "Board";
+                        const fetchedBoardName = boardData.name || "Board";
 
-                        // Sort columns alphabetically by title, then by id if titles are the same
+                        // Set board name
+                        setBoardName(fetchedBoardName);
+
+                        // Sort columns alphabetically
                         const sortedColumns = [...unsortedColumns].sort((a, b) => {
                             if (a.title.toLowerCase() === b.title.toLowerCase()) {
                                 return a.id.localeCompare(b.id);
@@ -361,12 +146,7 @@ const App = () => {
 
                         setColumns(sortedColumns);
 
-                        // Load form config (either saved or default)
-                        // Note: We need to use the sortedColumns here directly since state updates are async
-                        const defaultConfig = generateDefaultFormConfig(sortedColumns, boardName);
-                        setFormConfig(defaultConfig);
-
-                        // Now fetch child boards (boards that reference this board via connected board columns)
+                        // Fetch child boards
                         await fetchChildBoards(res.data.boardId);
                     }
                 } catch (error) {
@@ -374,40 +154,74 @@ const App = () => {
                 } finally {
                     setLoading(false);
                 }
-                // NEW: Check for saved configuration
-                try {
-                    const savedData = await monday.storage.instance.getItem("formConfig");
-                    if (savedData && savedData.data && savedData.data.value) {
-                        setFormConfig(JSON.parse(savedData.data.value));
-                    } else {
-                        // Fallback to default if no saved config exists
-                        const defaultConfig = generateDefaultFormConfig(sortedColumns, boardName);
-                        setFormConfig(defaultConfig);
-                    }
-                } catch (err) {
-                    console.warn("Storage fetch failed, using defaults", err);
-                }
             }
         });
-    }, [generateDefaultFormConfig]);
+    }, []);
 
     // ============================================
     // HELPER FUNCTIONS - FILTERING
     // ============================================
-    // Filter columns based on search query (searches title and type)
     const filteredColumns = columns.filter(
         (column) =>
             column.title.toLowerCase().includes(searchColumnsQuery.toLowerCase()) || column.type.toLowerCase().includes(searchColumnsQuery.toLowerCase()),
     );
 
-    // Filter child boards based on search query (searches label)
     const filteredChildBoards = childBoards.filter((item) => item.label.toLowerCase().includes(searchChildBoardsQuery.toLowerCase()));
+
+    // ============================================
+    // FORM SUBMISSION - Create Item with Name
+    // ============================================
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+
+        if (!itemName.trim()) {
+            monday.execute("notice", {
+                message: "Please enter an item name",
+                type: "error",
+                timeout: 3000,
+            });
+            return;
+        }
+
+        setSubmitting(true);
+        try {
+            const mutation = `
+                mutation {
+                    create_item(
+                        board_id: ${boardId},
+                        item_name: "${itemName.replace(/"/g, '\\"')}"
+                    ) {
+                        id
+                    }
+                }
+            `;
+
+            await monday.api(mutation);
+
+            monday.execute("notice", {
+                message: "Item created successfully!",
+                type: "success",
+                timeout: 3000,
+            });
+
+            // Clear form
+            setItemName("");
+        } catch (error) {
+            console.error("Error creating item:", error);
+            monday.execute("notice", {
+                message: "Error creating item: " + error.message,
+                type: "error",
+                timeout: 5000,
+            });
+        } finally {
+            setSubmitting(false);
+        }
+    };
 
     return (
         <Box className="App" backgroundColor="var(--primary-background-color)">
             {/* HEADER - Display board info and user */}
             <Box marginBottom="large" padding="medium">
-                {/* Header with title and admin gear icon */}
                 <Flex align="center" justify="space-between" marginBottom="medium">
                     <Heading type="h1" weight="bold">
                         Monday Board Info
@@ -446,7 +260,11 @@ const App = () => {
                 <Box
                     padding="medium"
                     marginBottom="medium"
-                    style={{ backgroundColor: "rgba(0, 115, 234, 0.1)", border: "1px solid var(--ui-border-color)", borderRadius: "8px" }}
+                    style={{
+                        backgroundColor: "rgba(0, 115, 234, 0.1)",
+                        border: "1px solid var(--ui-border-color)",
+                        borderRadius: "8px",
+                    }}
                 >
                     <Flex align="center" justify="space-between" marginBottom="medium">
                         <Heading type="h3" weight="bold">
@@ -473,7 +291,7 @@ const App = () => {
 
             {/* MAIN LAYOUT - Sidebar + Content Area */}
             <Flex className="metadata-layout" align="Start">
-                {/* LEFT SIDEBAR - Navigation */}
+                {/* LEFT SIDEBAR - Navigation (NO SECTIONS OPTION) */}
                 <Box className="sidebar">
                     {/* Columns Navigation Item */}
                     <div
@@ -494,17 +312,6 @@ const App = () => {
                     >
                         <Text type="paragraph" weight="bold">
                             Child Boards
-                        </Text>
-                    </div>
-
-                    {/* Sections Navigation Item */}
-                    <div
-                        className={`nav-item ${selectedSection === "sections" ? "active" : ""}`}
-                        onClick={() => setSelectedSection("sections")}
-                        style={{ cursor: "pointer" }}
-                    >
-                        <Text type="paragraph" weight="bold">
-                            Sections
                         </Text>
                     </div>
                 </Box>
@@ -539,7 +346,6 @@ const App = () => {
                                     </Text>
                                 </Flex>
                             ) : columns && columns.length > 0 ? (
-                                // Display columns in grid layout - hover to see column ID
                                 <Box className="columns-container">
                                     {filteredColumns.length > 0 ? (
                                         filteredColumns.map((column) => (
@@ -610,8 +416,6 @@ const App = () => {
                                     </Text>
                                 </Flex>
                             ) : childBoards && childBoards.length > 0 ? (
-                                // Display child boards in grid layout - hover to see board ID
-                                // Format: "BoardName - ColumnLabel"
                                 <Box className="columns-container">
                                     {filteredChildBoards.length > 0 ? (
                                         filteredChildBoards.map((item) => (
@@ -653,208 +457,53 @@ const App = () => {
                             )}
                         </Box>
                     )}
-
-                    {/* SECTIONS VIEW */}
-                    {selectedSection === "sections" && (
-                        <Box>
-                            {/*
-                            <Heading type="h2" weight="bold" marginBottom="medium">
-                                Sections
-                            </Heading>
-                            */}
-                            {formConfig && formConfig.sections && formConfig.sections.length > 0 ? (
-                                <Box>
-                                    <Box marginBottom="large">
-                                        <Text type="paragraph" color="var(--secondary-text-color)" marginBottom="medium">
-                                            Current sections: {formConfig.sections.length}
-                                        </Text>
-                                        {formConfig.sections.map((section) => (
-                                            <Box
-                                                key={section.id}
-                                                padding="small"
-                                                marginBottom="small"
-                                                backgroundColor="var(--secondary-background-color)"
-                                                border="1px solid var(--ui-border-color)"
-                                                borderRadius="6px"
-                                            >
-                                                <Text type="paragraph" weight="bold">
-                                                    {section.title}
-                                                </Text>
-                                                <Text type="paragraph" color="var(--secondary-text-color)" size="small">
-                                                    {section.fields ? section.fields.length : 0} fields
-                                                </Text>
-                                            </Box>
-                                        ))}
-                                    </Box>
-
-                                    <Button kind="secondary" onClick={handleOpenNewSectionDialog}>
-                                        + New Section
-                                    </Button>
-                                </Box>
-                            ) : (
-                                <Box>
-                                    <Text type="paragraph" color="var(--secondary-text-color)" marginBottom="medium">
-                                        No sections created yet.
-                                    </Text>
-                                    <Button kind="secondary" onClick={handleOpenNewSectionDialog}>
-                                        + New Section
-                                    </Button>
-                                </Box>
-                            )}
-                        </Box>
-                    )}
                 </Box>
             </Flex>
 
-            {/* LAYOUT SECTION - Full width drag-and-drop form area */}
+            {/* LAYOUT SECTION - Only Item Name Field */}
             <Box className="layout-section">
                 <Box padding="medium" borderTop="1px solid var(--ui-border-color)">
                     <Heading type="h2" weight="bold" marginBottom="medium">
                         Layout
                     </Heading>
 
-                    {loadingFormConfig ? (
-                        <Flex align="center" gap="small">
-                            <Loader />
-                            <Text type="paragraph" color="var(--primary-text-color)">
-                                Loading form...
-                            </Text>
-                        </Flex>
-                    ) : formConfig && formConfig.sections ? (
+                    <form onSubmit={handleSubmit}>
                         <Box className="form-container">
-                            {formConfig.sections.map((section) => (
-                                <Box key={section.id} marginBottom="large">
-                                    {/* Section title */}
-                                    <Heading type="h3" weight="bold" marginBottom="medium">
-                                        {section.title}
-                                    </Heading>
+                            {/* Default Section - Board Information */}
+                            <Box marginBottom="large">
+                                <Heading type="h3" weight="bold" marginBottom="medium">
+                                    {boardName} Information
+                                </Heading>
 
-                                    {/* Section fields in responsive grid */}
-                                    <Box className="form-fields">
-                                        {section.fields && section.fields.length > 0 ? (
-                                            section.fields.map((field) => (
-                                                <Box key={field.id} className="form-field-wrapper">
-                                                    {renderFormField(field)}
-                                                </Box>
-                                            ))
-                                        ) : (
-                                            <Text type="paragraph" color="var(--secondary-text-color)">
-                                                No fields in this section.
-                                            </Text>
-                                        )}
+                                {/* Single Field: Item Name */}
+                                <Box className="form-fields">
+                                    <Box className="form-field-wrapper">
+                                        <TextField
+                                            label="Item Name"
+                                            value={itemName}
+                                            onChange={(value) => setItemName(value)}
+                                            placeholder="Enter item name"
+                                            required
+                                        />
                                     </Box>
                                 </Box>
-                            ))}
-
-                            {/* New Section Drop Zone */}
-                            <Box
-                                marginTop="large"
-                                padding="medium"
-                                backgroundColor="rgba(0, 115, 234, 0.05)"
-                                border="2px dashed var(--ui-border-color)"
-                                borderRadius="8px"
-                                style={{ textAlign: "center", minHeight: "120px", display: "flex", alignItems: "center", justifyContent: "center" }}
-                            >
-                                <Flex direction="column" align="center" gap="small">
-                                    <Heading type="h4" weight="bold">
-                                        New Section
-                                    </Heading>
-                                    <Text type="paragraph" color="var(--secondary-text-color)">
-                                        Drag columns here to create a new section
-                                    </Text>
-                                </Flex>
                             </Box>
 
                             {/* Submit button */}
                             <Flex gap="medium" marginTop="large">
-                                <Button
-                                    kind="primary"
-                                    onClick={() => {
-                                        console.log("Form submitted with data:", formData);
-                                        // TODO: Implement form submission to create board item
-                                    }}
-                                >
-                                    Submit Form
+                                <Button type="submit" kind="primary" disabled={submitting} loading={submitting}>
+                                    {submitting ? "Creating..." : "Submit Form"}
                                 </Button>
-                                <Button kind="secondary" onClick={() => setFormData({})}>
+                                <Button type="button" kind="secondary" onClick={() => setItemName("")} disabled={submitting}>
                                     Clear Form
                                 </Button>
                             </Flex>
                         </Box>
-                    ) : (
-                        <Text type="paragraph" color="var(--secondary-text-color)">
-                            Form could not be loaded.
-                        </Text>
-                    )}
+                    </form>
                 </Box>
             </Box>
-
-            {/* NEW SECTION DIALOG - Modal for creating new sections */}
-            {showNewSectionDialog && (
-                <Box
-                    style={{
-                        position: "fixed",
-                        top: 0,
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        backgroundColor: "rgba(0, 0, 0, 0.4)", // Darken the background slightly
-                        display: "flex",
-                        alignItems: "center",
-                        justifyContent: "center",
-                        zIndex: 10000, // Very high z-index to stay above everything
-                        backdropFilter: "blur(4px)", // Optional: blurs the background for focus
-                    }}
-                    onClick={handleCloseNewSectionDialog}
-                >
-                    <Box
-                        padding="large"
-                        borderRadius="12px"
-                        style={{
-                            minWidth: "450px",
-                            // EXPLICIT SOLID COLORS to prevent transparency
-                            backgroundColor: "#FFFFFF",
-                            background: "white !important",
-                            boxShadow: "0px 15px 50px rgba(0, 0, 0, 0.3)",
-                            position: "relative",
-                            zIndex: 10001,
-                            border: "1px solid #e1e3eb",
-                            display: "block", // Ensure it's not inheriting flex-transparency
-                            opacity: 1, // Force full opacity
-                        }}
-                        onClick={(e) => e.stopPropagation()}
-                    >
-                        <Heading type="h2" weight="bold" marginBottom="medium">
-                            Create New Section
-                        </Heading>
-
-                        <Box marginBottom="medium">
-                            <TextField
-                                placeholder="Enter section name"
-                                value={newSectionName}
-                                onChange={(value) => handleNewSectionNameChange(value)}
-                                autoFocus
-                            />
-                            {newSectionNameError && (
-                                <Text type="paragraph" color="#d32f2f" size="small" marginTop="small">
-                                    {newSectionNameError}
-                                </Text>
-                            )}
-                        </Box>
-
-                        <Flex gap="medium" justify="flex-end">
-                            <Button kind="secondary" onClick={handleCloseNewSectionDialog}>
-                                Cancel
-                            </Button>
-                            <Button kind="primary" onClick={handleCreateNewSection}>
-                                Create Section
-                            </Button>
-                        </Flex>
-                    </Box>
-                </Box>
-            )}
         </Box>
     );
-};;
+};
 
 export default App;
