@@ -40,10 +40,6 @@ const App = () => {
     const [showNewSectionDialog, setShowNewSectionDialog] = useState(false);
     const [newSectionName, setNewSectionName] = useState("");
 
-    // Form data
-    const [formData, setFormData] = useState({});
-    const [submitting, setSubmitting] = useState(false);
-
     // Drag state
     const [draggedColumn, setDraggedColumn] = useState(null);
     const [dragOverSectionId, setDragOverSectionId] = useState(null);
@@ -442,80 +438,6 @@ const App = () => {
 
     const filteredChildBoards = childBoards.filter((item) => item.label.toLowerCase().includes(searchChildBoardsQuery.toLowerCase()));
 
-    // ============================================
-    // FORM SUBMISSION
-    // ============================================
-    const handleSubmit = async (e) => {
-        e.preventDefault();
-
-        if (!formData.name || !formData.name.trim()) {
-            monday.execute("notice", {
-                message: "Please enter an item name",
-                type: "error",
-                timeout: 3000,
-            });
-            return;
-        }
-
-        setSubmitting(true);
-        try {
-            const columnValues = {};
-
-            layoutSections.forEach((section) => {
-                section.fields.forEach((field) => {
-                    if (field.columnId !== "name" && formData[field.columnId]) {
-                        columnValues[field.columnId] = formData[field.columnId];
-                    }
-                });
-            });
-
-            const mutation = `
-                mutation {
-                    create_item(
-                        board_id: ${boardId},
-                        item_name: "${formData.name.replace(/"/g, '\\"')}",
-                        column_values: ${JSON.stringify(JSON.stringify(columnValues))}
-                    ) {
-                        id
-                    }
-                }
-            `;
-
-            await monday.api(mutation);
-
-            monday.execute("notice", {
-                message: "Item created successfully!",
-                type: "success",
-                timeout: 3000,
-            });
-
-            setFormData({});
-        } catch (error) {
-            console.error("Error creating item:", error);
-            monday.execute("notice", {
-                message: "Error creating item: " + error.message,
-                type: "error",
-                timeout: 5000,
-            });
-        } finally {
-            setSubmitting(false);
-        }
-    };
-
-    // ============================================
-    // RENDER FORM FIELD
-    // ============================================
-    const renderFormField = (field) => {
-        const value = formData[field.columnId] || "";
-        const onChange = (newValue) => {
-            setFormData({ ...formData, [field.columnId]: newValue });
-        };
-
-        return (
-            <TextField key={field.id} label={field.label} value={value} onChange={onChange} placeholder={`Enter ${field.label}`} required={field.isDefault} />
-        );
-    };
-
     return (
         <Box className="App" backgroundColor="var(--primary-background-color)">
             {/* HEADER */}
@@ -565,7 +487,7 @@ const App = () => {
                 >
                     <Flex align="center" justify="space-between" marginBottom="medium">
                         <Heading type="h3" weight="bold">
-                            Form Customization (Admin Panel)
+                            Page Layout Editor
                         </Heading>
                         <button
                             onClick={() => setShowAdminPanel(false)}
@@ -581,7 +503,7 @@ const App = () => {
                         </button>
                     </Flex>
                     <Text type="paragraph" color="var(--secondary-text-color)">
-                        Drag columns into sections. Create new sections with the "+ New Section" button.
+                        Drag columns into sections to customize the page layout. Changes are saved when you click "Save Layout".
                     </Text>
                 </Box>
             )}
@@ -761,7 +683,7 @@ const App = () => {
                 </Box>
             </Flex>
 
-            {/* LAYOUT SECTION */}
+            {/* LAYOUT SECTION - Page Layout Editor */}
             <Box className="layout-section">
                 <Box padding="medium" borderTop="1px solid var(--ui-border-color)">
                     <Flex align="center" justify="space-between" marginBottom="medium">
@@ -781,116 +703,98 @@ const App = () => {
                         )}
                     </Flex>
 
-                    <form onSubmit={handleSubmit}>
-                        <Box className="form-container">
-                            {/* SECTIONS */}
-                            {layoutSections.map((section) => (
-                                <Box key={section.id} marginBottom="large" className="layout-section-container">
-                                    <Flex align="center" justify="space-between" marginBottom="medium">
-                                        <Heading type="h3" weight="bold">
-                                            {section.title}
-                                        </Heading>
-                                        {!section.isDefault && (
-                                            <IconButton
-                                                icon={CloseSmall}
-                                                size="small"
-                                                kind="tertiary"
-                                                onClick={() => deleteSection(section.id)}
-                                                ariaLabel="Delete section"
-                                            />
-                                        )}
-                                    </Flex>
-
-                                    {/* DROP ZONE */}
-                                    <Box
-                                        className={`form-fields section-drop-zone ${dragOverSectionId === section.id ? "drag-over" : ""}`}
-                                        onDragOver={(e) => handleSectionDragOver(e, section.id)}
-                                        onDragLeave={handleSectionDragLeave}
-                                        onDrop={(e) => handleSectionDrop(e, section.id)}
-                                    >
-                                        {section.fields.length > 0 ? (
-                                            section.fields.map((field) => (
-                                                <div
-                                                    key={field.id}
-                                                    className="form-field-wrapper layout-field"
-                                                    onMouseEnter={() => setHoveredFieldId(field.id)}
-                                                    onMouseLeave={() => setHoveredFieldId(null)}
-                                                >
-                                                    <Box style={{ position: "relative" }}>
-                                                        {renderFormField(field)}
-
-                                                        {hoveredFieldId === field.id && !field.isDefault && (
-                                                            <IconButton
-                                                                icon={CloseSmall}
-                                                                size="small"
-                                                                kind="tertiary"
-                                                                onClick={() => removeField(section.id, field.id)}
-                                                                ariaLabel="Remove field"
-                                                                style={{
-                                                                    position: "absolute",
-                                                                    top: "8px",
-                                                                    right: "8px",
-                                                                    backgroundColor: "white",
-                                                                    boxShadow: "0 2px 4px rgba(0,0,0,0.1)",
-                                                                    zIndex: 10,
-                                                                }}
-                                                            />
-                                                        )}
-
-                                                        {field.isDefault && hoveredFieldId === field.id && (
-                                                            <Text
-                                                                size="small"
-                                                                color="var(--secondary-text-color)"
-                                                                style={{
-                                                                    position: "absolute",
-                                                                    bottom: "-18px",
-                                                                    left: "0",
-                                                                    fontSize: "11px",
-                                                                }}
-                                                            >
-                                                                Cannot be removed
-                                                            </Text>
-                                                        )}
-                                                    </Box>
-                                                </div>
-                                            ))
-                                        ) : (
-                                            <Box
-                                                padding="large"
-                                                style={{
-                                                    gridColumn: "1 / -1",
-                                                    border: "2px dashed var(--ui-border-color)",
-                                                    borderRadius: "8px",
-                                                    textAlign: "center",
-                                                    backgroundColor: "rgba(0, 115, 234, 0.03)",
-                                                }}
-                                            >
-                                                <Text color="var(--secondary-text-color)">Drag columns here to add them to this section</Text>
-                                            </Box>
-                                        )}
-                                    </Box>
-                                </Box>
-                            ))}
-
-                            {/* NEW SECTION BUTTON */}
-                            <Button kind="secondary" onClick={() => setShowNewSectionDialog(true)} style={{ width: "100%" }}>
-                                <Flex align="center" justify="center" gap="small">
-                                    <Add />
-                                    <Text>New Section</Text>
+                    <Box className="form-container">
+                        {/* SECTIONS */}
+                        {layoutSections.map((section) => (
+                            <Box key={section.id} marginBottom="large" className="layout-section-container">
+                                <Flex align="center" justify="space-between" marginBottom="medium">
+                                    <Heading type="h3" weight="bold">
+                                        {section.title}
+                                    </Heading>
+                                    {!section.isDefault && (
+                                        <IconButton
+                                            icon={CloseSmall}
+                                            size="small"
+                                            kind="tertiary"
+                                            onClick={() => deleteSection(section.id)}
+                                            ariaLabel="Delete section"
+                                        />
+                                    )}
                                 </Flex>
-                            </Button>
 
-                            {/* SUBMIT BUTTONS */}
-                            <Flex gap="medium" marginTop="large">
-                                <Button type="submit" kind="primary" disabled={submitting} loading={submitting}>
-                                    {submitting ? "Creating..." : "Submit Form"}
-                                </Button>
-                                <Button type="button" kind="secondary" onClick={() => setFormData({})} disabled={submitting}>
-                                    Clear Form
-                                </Button>
+                                {/* DROP ZONE - Field Labels Grid (like Salesforce) */}
+                                <Box
+                                    className={`field-labels-grid section-drop-zone ${dragOverSectionId === section.id ? "drag-over" : ""}`}
+                                    onDragOver={(e) => handleSectionDragOver(e, section.id)}
+                                    onDragLeave={handleSectionDragLeave}
+                                    onDrop={(e) => handleSectionDrop(e, section.id)}
+                                >
+                                    {section.fields.length > 0 ? (
+                                        section.fields.map((field) => (
+                                            <div
+                                                key={field.id}
+                                                className="field-label-item"
+                                                onMouseEnter={() => setHoveredFieldId(field.id)}
+                                                onMouseLeave={() => setHoveredFieldId(null)}
+                                            >
+                                                <Flex
+                                                    align="center"
+                                                    justify="space-between"
+                                                    style={{
+                                                        padding: "12px",
+                                                        borderRadius: "4px",
+                                                        backgroundColor: "white",
+                                                        border: "1px solid var(--ui-border-color)",
+                                                    }}
+                                                >
+                                                    <Text type="paragraph" color="var(--primary-text-color)">
+                                                        {field.label}
+                                                    </Text>
+
+                                                    {hoveredFieldId === field.id && !field.isDefault && (
+                                                        <IconButton
+                                                            icon={CloseSmall}
+                                                            size="small"
+                                                            kind="tertiary"
+                                                            onClick={() => removeField(section.id, field.id)}
+                                                            ariaLabel="Remove field"
+                                                        />
+                                                    )}
+
+                                                    {field.isDefault && hoveredFieldId === field.id && (
+                                                        <Text size="small" color="var(--secondary-text-color)">
+                                                            Required
+                                                        </Text>
+                                                    )}
+                                                </Flex>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <Box
+                                            padding="large"
+                                            style={{
+                                                gridColumn: "1 / -1",
+                                                border: "2px dashed var(--ui-border-color)",
+                                                borderRadius: "8px",
+                                                textAlign: "center",
+                                                backgroundColor: "rgba(0, 115, 234, 0.03)",
+                                            }}
+                                        >
+                                            <Text color="var(--secondary-text-color)">Drag columns here to add them to this section</Text>
+                                        </Box>
+                                    )}
+                                </Box>
+                            </Box>
+                        ))}
+
+                        {/* NEW SECTION BUTTON */}
+                        <Button kind="secondary" onClick={() => setShowNewSectionDialog(true)} style={{ width: "100%" }}>
+                            <Flex align="center" justify="center" gap="small">
+                                <Add />
+                                <Text>New Section</Text>
                             </Flex>
-                        </Box>
-                    </form>
+                        </Button>
+                    </Box>
                 </Box>
             </Box>
 
