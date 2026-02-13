@@ -113,6 +113,42 @@ body {
   box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
+.column-card.disabled {
+  opacity: 0.5;
+  cursor: not-allowed !important;
+  pointer-events: none;
+}
+
+.column-card.disabled:hover {
+  box-shadow: none !important;
+}
+
+.layout-drop-zone {
+  min-height: 200px;
+  padding: 16px;
+  border: 2px dashed transparent;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.layout-field {
+  position: relative;
+  transition: all 0.2s ease;
+}
+
+.layout-field:hover {
+  background-color: rgba(0, 115, 234, 0.03);
+  border-radius: 4px;
+}
+
+.column-card[draggable="true"] {
+  cursor: grab;
+}
+
+.column-card[draggable="true"]:active {
+  cursor: grabbing;
+}
+
 /* Responsive adjustments */
 @media (max-width: 1400px) {
   .columns-container {
