@@ -7,9 +7,9 @@ import {   PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID,
     PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER,
     PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS,
 } from "./config_constants";
-
+import { deleteItems } from "./hooks/items";
 //const PLS_BOARDID =
-import { getPageLayoutSectionRecords } from "./hooks/pageLayoutBuilderUtils";
+import { getPageLayoutSectionRecords, parseLongTextJSON } from "./hooks/pageLayoutBuilderUtils";
 
 import "./App.css";
 
@@ -158,21 +158,6 @@ const fieldsToRows = (fields, columnsMap) => {
     }
     if (rows.length === 0) rows.push([null, null]);
     return rows;
-};
-
-// Safe JSON parse for monday long_text values (double-encoded)
-const safeParseSectionJSON = (cv) => {
-    if (!cv) return null;
-    // long_text stores value as JSON string of the actual string
-    const raw = cv.value || cv.text || "";
-    if (!raw) return null;
-    try {
-        return JSON.parse(JSON.parse(raw));
-    } catch (_) {}
-    try {
-        return JSON.parse(raw);
-    } catch (_) {}
-    return null;
 };
 
 // ═══════════════════════════════════════════════════════════════════════════════
@@ -462,6 +447,7 @@ export default function App() {
 
     const dragRef = useRef(null);
     const plsColsRef = useRef(null); // cached PLS board column IDs
+    const deletedRecordIds = useRef([]); // record IDs pending deletion on next Save
 
     // ── Load boards on mount
     useEffect(() => {
@@ -500,11 +486,18 @@ export default function App() {
         setLayoutLoading(true);
         try {
             const plsCols = await ensurePLSCols();
-            // Use the utility function
             const matchingRecords = await getPageLayoutSectionRecords(boardId, plsCols.boardIdColId);
-            console.log("Matching records ", matchingRecords);
-            console.log("Matching records, target board id ", boardId);
-            console.log("Matching records, plsCols ", plsCols);
+
+            // Debug: log what we got back and whether sections parse correctly
+            console.log("[PLB] fetchExistingLayout - matched", matchingRecords.length, "records for board", boardId);
+            matchingRecords.forEach((item) => {
+                const sv = item.column_values.find((c) => c.id === plsCols.sectionsColId);
+                console.log(`[PLB] "${item.name}" sectionsCV.text:`, sv?.text?.slice(0, 150));
+                console.log(`[PLB] "${item.name}" sectionsCV.value:`, sv?.value?.slice(0, 150));
+                const parsed = parseLongTextJSON(sv);
+                console.log(`[PLB] "${item.name}" parsed:`, parsed ? `OK - ${parsed.fields?.length ?? 0} fields` : "FAILED");
+            });
+
             if (matchingRecords.length === 0) {
                 setSections([makeSection("Board Information", 1)]);
                 setPlacedColIds(new Set());
@@ -520,81 +513,14 @@ export default function App() {
                     const sectionsCV = item.column_values.find((c) => c.id === plsCols.sectionsColId);
                     const orderCV = item.column_values.find((c) => c.id === plsCols.orderColId);
                     const order = parseInt(orderCV?.text || "0") || 0;
-                    const sectionData = safeParseSectionJSON(sectionsCV);
 
-                    if (!sectionData) return null;
+                    // KEY FIX: use parseLongTextJSON instead of safeParseSectionJSON
+                    const sectionData = parseLongTextJSON(sectionsCV);
 
-                    const rows = fieldsToRows(sectionData.fields || [], columnsMap);
-                    rows.forEach((row) =>
-                        row.forEach((col) => {
-                            if (col) {
-                                placed.add(col.id);
-                                const field = sectionData.fields.find((f) => f.columnId === col.id);
-                                if (field?.isDefault === "true") required.add(col.id);
-                            }
-                        }),
-                    );
-
-                    return {
-                        id: sectionData.id || makeSectionId(),
-                        title: sectionData.title || item.name,
-                        order,
-                        isDefault: sectionData.isDefault || "false",
-                        recordId: item.id,
-                        rows,
-                    };
-                })
-                .filter(Boolean)
-                .sort((a, b) => a.order - b.order);
-
-            setSections(built.length > 0 ? built : [makeSection("Board Information", 1)]);
-            setPlacedColIds(placed);
-            setRequiredFields(required);
-            /*
-            const query = `
-                query($boardId: ID!) {
-                    boards(ids: [$boardId]) {
-                        items_page(limit: 200) {
-                            items {
-                                id
-                                name
-                                column_values {
-                                    id
-                                    text
-                                    value
-                                }
-                            }
-                        }
+                    if (!sectionData) {
+                        console.warn("[PLB] Skipping item - could not parse sectionData for:", item.name, item.id);
+                        return null;
                     }
-                }
-            `;
-            const resp = await monday.api(query, { variables: { boardId: String(PAGELAYOUTSECTION_BOARDID) } });
-            const items = resp?.data?.boards?.[0]?.items_page?.items || [];
-
-            // Filter items belonging to this board
-            const matching = items.filter((item) => {
-                const cv = item.column_values.find((c) => c.id === plsCols.boardIdColId);
-                return cv?.text?.trim() === String(boardId);
-            });
-
-            if (matching.length === 0) {
-                setSections([makeSection("Board Information", 1)]);
-                setPlacedColIds(new Set());
-                setRequiredFields(new Set());
-                return;
-            }
-
-            const placed = new Set();
-            const required = new Set();
-
-            const built = matching
-                .map((item) => {
-                    const sectionsCV = item.column_values.find((c) => c.id === plsCols.sectionsColId);
-                    const orderCV = item.column_values.find((c) => c.id === plsCols.orderColId);
-                    const order = parseInt(orderCV?.text || "0") || 0;
-                    const sectionData = safeParseSectionJSON(sectionsCV);
-
-                    if (!sectionData) return null;
 
                     const rows = fieldsToRows(sectionData.fields || [], columnsMap);
 
@@ -623,9 +549,8 @@ export default function App() {
             setSections(built.length > 0 ? built : [makeSection("Board Information", 1)]);
             setPlacedColIds(placed);
             setRequiredFields(required);
-            */
         } catch (err) {
-            //console.error("fetchExistingLayout error:", err);
+            console.error("[PLB] fetchExistingLayout error:", err);
             setSections([makeSection("Board Information", 1)]);
             setSaveMsg({ type: "error", text: "Could not load existing layout: " + err.message });
         } finally {
@@ -749,6 +674,10 @@ export default function App() {
         setSections((prev) => {
             const sec = prev.find((s) => s.id === sectionId);
             if (sec) {
+                // If this section was already saved to monday, queue its record for deletion on next Save
+                if (sec.recordId) {
+                    deletedRecordIds.current = [...deletedRecordIds.current, sec.recordId];
+                }
                 const freed = sec.rows.flatMap((r) => r.filter(Boolean).map((c) => c.id));
                 setPlacedColIds((p) => {
                     const n = new Set(p);
@@ -781,6 +710,22 @@ export default function App() {
         try {
             const plsCols = await ensurePLSCols();
 
+            // ── Step 1: Delete any section records removed since last save ──────────
+            if (deletedRecordIds.current.length > 0) {
+                const toDelete = [...deletedRecordIds.current];
+                console.log("[PLB] Deleting removed section records:", toDelete);
+                const delResult = await deleteItems(toDelete);
+                if (delResult.success) {
+                    deletedRecordIds.current = []; // clear the queue on success
+                    console.log("[PLB] Deleted", toDelete.length, "section record(s) successfully");
+                } else {
+                    // Don't block the rest of the save, but surface the error
+                    console.error("[PLB] Failed to delete section records:", delResult.error);
+                    fail += toDelete.length;
+                }
+            }
+
+            // ── Step 2: Create / update each remaining section ──────────────────────
             for (let i = 0; i < sections.length; i++) {
                 const sec = sections[i];
                 const fields = rowsToFields(sec.rows, requiredFields);
@@ -792,7 +737,6 @@ export default function App() {
                     fields,
                 };
 
-                // Board ID stored as text; Sections as long_text JSON; Order as number
                 const columnValues = {
                     [plsCols.boardIdColId]: String(selectedBoard.id),
                     [plsCols.sectionsColId]: JSON.stringify(sectionPayload),
@@ -801,7 +745,7 @@ export default function App() {
 
                 try {
                     if (sec.recordId) {
-                        // UPDATE
+                        // UPDATE existing record
                         const mutation = `
                             mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
                                 change_multiple_column_values(
@@ -820,7 +764,7 @@ export default function App() {
                         });
                         ok++;
                     } else {
-                        // CREATE
+                        // CREATE new record
                         const mutation = `
                             mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
                                 create_item(
@@ -839,12 +783,13 @@ export default function App() {
                         });
                         const newId = res?.data?.create_item?.id;
                         if (newId) {
+                            // Patch state so next save updates rather than creates
                             setSections((prev) => prev.map((s) => (s.id === sec.id ? { ...s, recordId: newId } : s)));
                         }
                         ok++;
                     }
                 } catch (err) {
-                    console.error(`Error saving section "${sec.title}":`, err);
+                    console.error(`[PLB] Error saving section "${sec.title}":`, err);
                     fail++;
                 }
             }
