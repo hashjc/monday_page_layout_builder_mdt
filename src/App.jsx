@@ -422,9 +422,26 @@ function Section({ section, onAddRow, onRemoveField, onRemoveSection, onRenameSe
                 ))}
             </div>
 
-            <button className="ls-add-row" onClick={() => onAddRow(section.id)}>
-                <Icon.Plus /> Add Row
-            </button>
+            {(() => {
+                const hasFields = section.rows.some((row) => row[0] !== null || row[1] !== null);
+                if (!hasFields) {
+                    return (
+                        <div
+                            style={{
+                                padding: "16px",
+                                textAlign: "center",
+                                fontSize: "13px",
+                                color: "#adb5c3",
+                                fontStyle: "italic",
+                                borderTop: "1px solid #d0d4e4",
+                            }}
+                        >
+                            Drag fields from above to get started
+                        </div>
+                    );
+                }
+                return null;
+            })()}
         </div>
     );
 }
@@ -633,17 +650,30 @@ export default function App() {
                 target.rows[toRow][toSlot] = col;
                 setPlacedColIds((p) => new Set([...p, col.id]));
             }
+
+            // AUTO-EXPANSION: Add new empty row if this row is now full
+            const thisRow = target.rows[toRow];
+            const rowIsFull = thisRow[0] !== null && thisRow[1] !== null;
+            const isLastRow = toRow === target.rows.length - 1;
+
+            if (rowIsFull && isLastRow) {
+                // This was the last row and it's now full — add a new empty row
+                target.rows.push([null, null]);
+                console.log(`[PLB] Auto-added new row to section "${target.title}"`);
+            }
+
             return next;
         });
     };
-
     const handleRemoveField = (sectionId, rowIdx, slotIdx) => {
         setSections((prev) => {
             const next = prev.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }));
             const sec = next.find((s) => s.id === sectionId);
             if (!sec) return prev;
+
             const removed = sec.rows[rowIdx][slotIdx];
             sec.rows[rowIdx][slotIdx] = null;
+
             if (removed) {
                 setPlacedColIds((p) => {
                     const n = new Set(p);
@@ -656,6 +686,25 @@ export default function App() {
                     return n;
                 });
             }
+
+            // AUTO-CLEANUP: Remove trailing empty rows (keep at least 1)
+            while (sec.rows.length > 1) {
+                const lastRow = sec.rows[sec.rows.length - 1];
+                const isEmpty = lastRow[0] === null && lastRow[1] === null;
+
+                // Check if second-to-last is also empty
+                const secondLastRow = sec.rows[sec.rows.length - 2];
+                const secondLastEmpty = secondLastRow[0] === null && secondLastRow[1] === null;
+
+                // Only remove if BOTH last two rows are empty (keep at least one empty row)
+                if (isEmpty && secondLastEmpty) {
+                    sec.rows.pop();
+                    console.log(`[PLB] Auto-removed empty row from section "${sec.title}"`);
+                } else {
+                    break;
+                }
+            }
+
             return next;
         });
     };
@@ -666,10 +715,6 @@ export default function App() {
             next.has(colId) ? next.delete(colId) : next.add(colId);
             return next;
         });
-    };
-
-    const handleAddRow = (sectionId) => {
-        setSections((prev) => prev.map((s) => (s.id === sectionId ? { ...s, rows: [...s.rows, [null, null]] } : s)));
     };
 
     const handleAddSection = () => {
@@ -817,7 +862,6 @@ export default function App() {
     const connectedCols = columns.filter((c) => c.type === "board_relation");
     const isLoading = columnsLoading || layoutLoading;
 
-    // ════════════════════════════════════════════════════════════════════════════
     return (
         <div className="plb-app">
             {/* Topbar */}
@@ -960,7 +1004,6 @@ export default function App() {
                                     <Section
                                         key={sec.id}
                                         section={sec}
-                                        onAddRow={handleAddRow}
                                         onRemoveField={handleRemoveField}
                                         onRemoveSection={handleRemoveSection}
                                         onRenameSection={handleRenameSection}
