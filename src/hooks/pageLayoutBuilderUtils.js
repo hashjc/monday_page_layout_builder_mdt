@@ -19,7 +19,6 @@ const monday = mondaySdk();
  */
 export async function getPageLayoutSectionRecords(targetBoardId, boardIdColumnId) {
     const targetStr = String(targetBoardId).trim();
-    console.log("[PLB] getPageLayoutSectionRecords - targetBoardId:", targetStr, "| boardIdColumnId:", boardIdColumnId);
 
     const query = `
         query($boardId: [ID!]) {
@@ -44,13 +43,13 @@ export async function getPageLayoutSectionRecords(targetBoardId, boardIdColumnId
     });
 
     const items = response?.data?.boards?.[0]?.items_page?.items || [];
-    console.log("[PLB] Total records in PLS board:", items.length);
-
     // Debug: log what each item's boardId column actually contains
+    
     items.forEach((item) => {
         const cv = item.column_values.find((c) => c.id === boardIdColumnId);
         console.log(`[PLB] Item "${item.name}" (${item.id}) - boardId col text: "${cv?.text}" value: "${cv?.value}"`);
     });
+    */
 
     // Match by normalizing both sides to trimmed strings.
     // Monday's text column can return the number as "5026698263" or "5026698263.0" etc.
@@ -73,29 +72,14 @@ export async function getPageLayoutSectionRecords(targetBoardId, boardIdColumnId
         })();
         const isMatch = colText === targetStr || colValue === targetStr;
         if (!isMatch) {
-            console.log(`[PLB] Skipping item "${item.name}" - colText="${colText}" colValue="${colValue}" !== target="${targetStr}"`);
         }
         return isMatch;
     });
-
-    console.log(
-        "[PLB] Matched records for board",
-        targetStr,
-        ":",
-        matched.length,
-        matched.map((i) => i.name),
-    );
     return matched;
 }
 
 /**
  * Parses a monday long_text column value into a JS object.
- *
- * monday's GraphQL API returns long_text column values in this shape:
- *   cv.value  = '{"text":"<actual json string>","changed_at":"..."}'
- *   cv.text   = <actual json string>   ← this is the most reliable field
- *
- * We try multiple strategies in order of reliability.
  *
  * @param {Object} cv - A column_value object from the GraphQL response { id, text, value }
  * @returns {Object|null} Parsed section data object, or null if parsing fails.
@@ -109,7 +93,6 @@ export function parseLongTextJSON(cv) {
         try {
             const parsed = JSON.parse(cv.text);
             if (parsed && typeof parsed === "object") {
-                console.log("[PLB] parseLongTextJSON: parsed via cv.text");
                 return parsed;
             }
         } catch (_) {}
@@ -122,7 +105,6 @@ export function parseLongTextJSON(cv) {
             if (outer && typeof outer.text === "string" && outer.text.trim().startsWith("{")) {
                 const inner = JSON.parse(outer.text);
                 if (inner && typeof inner === "object") {
-                    console.log("[PLB] parseLongTextJSON: parsed via cv.value outer.text");
                     return inner;
                 }
             }
@@ -134,7 +116,6 @@ export function parseLongTextJSON(cv) {
             if (typeof once === "string" && once.trim().startsWith("{")) {
                 const twice = JSON.parse(once);
                 if (twice && typeof twice === "object") {
-                    console.log("[PLB] parseLongTextJSON: parsed via double-decode of cv.value");
                     return twice;
                 }
             }
@@ -144,12 +125,9 @@ export function parseLongTextJSON(cv) {
         try {
             const direct = JSON.parse(cv.value);
             if (direct && typeof direct === "object" && !Array.isArray(direct)) {
-                console.log("[PLB] parseLongTextJSON: parsed via direct cv.value");
                 return direct;
             }
         } catch (_) {}
     }
-
-    console.warn("[PLB] parseLongTextJSON: FAILED to parse column value. cv.text:", cv.text?.slice(0, 100), "cv.value:", cv.value?.slice(0, 100));
     return null;
 }

@@ -450,7 +450,6 @@ function Section({ section, onAddRow, onRemoveField, onRemoveSection, onRenameSe
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
-    console.log("App start 1802");
     const [boards, setBoards] = useState([]);
     const [boardsLoading, setBoardsLoading] = useState(true);
     const [boardsError, setBoardsError] = useState(null);
@@ -512,13 +511,9 @@ export default function App() {
             const matchingRecords = await getPageLayoutSectionRecords(boardId, plsCols.boardIdColId);
 
             // Debug: log what we got back and whether sections parse correctly
-            console.log("[PLB] fetchExistingLayout - matched", matchingRecords.length, "records for board", boardId);
             matchingRecords.forEach((item) => {
                 const sv = item.column_values.find((c) => c.id === plsCols.sectionsColId);
-                console.log(`[PLB] "${item.name}" sectionsCV.text:`, sv?.text?.slice(0, 150));
-                console.log(`[PLB] "${item.name}" sectionsCV.value:`, sv?.value?.slice(0, 150));
                 const parsed = parseLongTextJSON(sv);
-                console.log(`[PLB] "${item.name}" parsed:`, parsed ? `OK - ${parsed.fields?.length ?? 0} fields` : "FAILED");
             });
 
             if (matchingRecords.length === 0) {
@@ -573,7 +568,6 @@ export default function App() {
             setPlacedColIds(placed);
             setRequiredFields(required);
         } catch (err) {
-            console.error("[PLB] fetchExistingLayout error:", err);
             setSections([makeSection("Board Information", 1)]);
             setSaveMsg({ type: "error", text: "Could not load existing layout: " + err.message });
         } finally {
@@ -659,7 +653,6 @@ export default function App() {
             if (rowIsFull && isLastRow) {
                 // This was the last row and it's now full — add a new empty row
                 target.rows.push([null, null]);
-                console.log(`[PLB] Auto-added new row to section "${target.title}"`);
             }
 
             return next;
@@ -699,7 +692,6 @@ export default function App() {
                 // Only remove if BOTH last two rows are empty (keep at least one empty row)
                 if (isEmpty && secondLastEmpty) {
                     sec.rows.pop();
-                    console.log(`[PLB] Auto-removed empty row from section "${sec.title}"`);
                 } else {
                     break;
                 }
@@ -764,14 +756,11 @@ export default function App() {
             // ── Step 1: Delete any section records removed since last save ──────────
             if (deletedRecordIds.current.length > 0) {
                 const toDelete = [...deletedRecordIds.current];
-                console.log("[PLB] Deleting removed section records:", toDelete);
                 const delResult = await deleteItems(toDelete);
                 if (delResult.success) {
                     deletedRecordIds.current = []; // clear the queue on success
-                    console.log("[PLB] Deleted", toDelete.length, "section record(s) successfully");
                 } else {
                     // Don't block the rest of the save, but surface the error
-                    console.error("[PLB] Failed to delete section records:", delResult.error);
                     fail += toDelete.length;
                 }
             }
