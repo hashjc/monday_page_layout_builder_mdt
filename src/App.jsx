@@ -137,17 +137,23 @@ const makeSection = (title, order) => ({
 });
 
 // Build flat fields array from rows (for save)
+const RULES_FIELD_TYPES = new Set(["people", "board_relation"]);
+
 const rowsToFields = (rows, requiredSet) =>
     rows.flatMap((row) =>
-        row.filter(Boolean).map((col) => ({
-            id: `field_${col.id}`,
-            columnId: col.id,
-            label: col.title,
-            type: col.type,
-            isDefault: requiredSet.has(col.id) ? "true" : "false",
-        })),
+        row.filter(Boolean).map((col) => {
+            const field = {
+                id: `field_${col.id}`,
+                columnId: col.id,
+                type: col.type,
+                isRequired: requiredSet.has(col.id) ? "true" : "false",
+            };
+            if (RULES_FIELD_TYPES.has(col.type)) {
+                field.rules = { maxValues: 1000 };
+            }
+            return field;
+        }),
     );
-
 // Rebuild rows from saved fields using columnsMap
 const fieldsToRows = (fields, columnsMap) => {
     const rows = [];
@@ -529,7 +535,7 @@ export default function App() {
                             if (col) {
                                 placed.add(col.id);
                                 const field = (sectionData.fields || []).find((f) => f.columnId === col.id);
-                                if (field?.isDefault === "true") required.add(col.id);
+                                if (field?.isRequired === "true") required.add(col.id);
                             }
                         }),
                     );
