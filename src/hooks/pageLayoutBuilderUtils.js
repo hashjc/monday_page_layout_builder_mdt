@@ -44,12 +44,12 @@ export async function getPageLayoutSectionRecords(targetBoardId, boardIdColumnId
 
     const items = response?.data?.boards?.[0]?.items_page?.items || [];
     // Debug: log what each item's boardId column actually contains
-    
+
     items.forEach((item) => {
         const cv = item.column_values.find((c) => c.id === boardIdColumnId);
         console.log(`[PLB] Item "${item.name}" (${item.id}) - boardId col text: "${cv?.text}" value: "${cv?.value}"`);
     });
-    */
+
 
     // Match by normalizing both sides to trimmed strings.
     // Monday's text column can return the number as "5026698263" or "5026698263.0" etc.
