@@ -68,3 +68,33 @@ export async function getBoardColumns(boardId) {
         };
     }
 }
+
+
+/**
+ * Finds board objects (id and name) matching a specific name string.
+ * @param {string} boardName
+ * @returns {Promise<Array>} List of matching boards [{id, name}]
+ */
+export async function getBoardIdsByName(boardName) {
+    try {
+        // Query boards specifically by name
+        const query = `query ($name: String!) {
+            boards(limit: 10, board_kind: public, workspace_ids: null) {
+                id
+                name
+            }
+        }`;
+
+        const response = await monday.api(query);
+
+        if (response.errors) throw new Error(response.errors[0].message);
+
+        // Client-side filter to find exact matches from the list
+        // Note: The monday API name filter in 'boards' is often a partial match
+        const allBoards = response.data?.boards || [];
+        return allBoards.filter(b => b.name.toLowerCase() === boardName.toLowerCase());
+    } catch (error) {
+        console.error(`[getBoardIdsByName] Error:`, error);
+        return [];
+    }
+}

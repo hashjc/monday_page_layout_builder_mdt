@@ -3,13 +3,16 @@ import mondaySdk from "monday-sdk-js";
 import { getAllBoards } from "./hooks/boards";
 import { getBoardColumns } from "./hooks/boardMetadata";
 import { PAGELAYOUTSECTION_BOARDID } from "./config_constants";
-import {   PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID,
+import {
+    PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID,
     PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER,
     PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS,
+    PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS,
+    PAGELAYOUTSECTION_COLUMN_TITLE_SECTION_RULES,
 } from "./config_constants";
 import { deleteItems } from "./hooks/items";
 //const PLS_BOARDID =
-import { getPageLayoutSectionRecords, parseLongTextJSON } from "./hooks/pageLayoutBuilderUtils";
+import { getPageLayoutSectionRecords, parseLongTextJSON, parseFieldsArrayJSON } from "./hooks/pageLayoutBuilderUtils";
 
 import "./App.css";
 
@@ -17,8 +20,23 @@ const monday = mondaySdk();
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 const PLS_COL_TITLE_BOARDID = PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID;
-const PLS_COL_TITLE_SECTIONS_JSON = PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS;
+//const PLS_COL_TITLE_SECTIONS_JSON = PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS;
 const PLS_COL_TITLE_SECTIONS_ORDER = PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER;
+const PLS_COL_TITLE_FIELDS = PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS; // NEW: fields-only array column
+const PLS_COL_TITLE_RULES = PAGELAYOUTSECTION_COLUMN_TITLE_SECTION_RULES;
+
+const USER_PROFILE_FIELDS = [
+    { id: "title", label: "Title", placeholder: "e.g. Sales Manager" },
+    { id: "profile", label: "Profile", placeholder: "e.g. Sales" },
+    { id: "role", label: "Role", placeholder: "e.g. Admin" },
+];
+
+const RULE_OPERATORS = [
+    { id: "equals", label: "equals" },
+    { id: "not_equals", label: "not equals" },
+    { id: "contains", label: "contains" },
+    { id: "not_contains", label: "not contains" },
+];
 
 // ─── Inline SVG Icons ────────────────────────────────────────────────────────
 const Icon = {
@@ -95,6 +113,22 @@ const Icon = {
             <path d="M5.5 1l1.2 2.5H9l-1.8 1.4.7 2.6L5.5 6 3.1 7.5l.7-2.6L2 3.5h2.3z" fill="currentColor" />
         </svg>
     ),
+    Gear: () => (
+        <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
+            <path d="M7.5 9.5a2 2 0 100-4 2 2 0 000 4z" stroke="currentColor" strokeWidth="1.3" />
+            <path
+                d="M12.1 9.2l.8.5a.5.5 0 010 .7l-1 1.7a.5.5 0 01-.7.1l-.9-.5a5 5 0 01-1.1.6l-.1 1a.5.5 0 01-.5.4H7a.5.5 0 01-.5-.4l-.1-1a5 5 0 01-1.1-.6l-.9.5a.5.5 0 01-.7-.1L2.7 10.4a.5.5 0 010-.7l.8-.5A5.1 5.1 0 013.4 8a5.1 5.1 0 01.1-1.2l-.8-.5a.5.5 0 010-.7l1-1.7a.5.5 0 01.7-.1l.9.5A5 5 0 016.4 3.8l.1-1A.5.5 0 017 2.3h1.9a.5.5 0 01.5.4l.1 1a5 5 0 011.1.6l.9-.5a.5.5 0 01.7.1l1 1.7a.5.5 0 010 .7l-.8.5c.1.4.1.8.1 1.2s0 .8-.1 1.2z"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinejoin="round"
+            />
+        </svg>
+    ),
+    Close: () => (
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M2 2L12 12M12 2L2 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
+        </svg>
+    ),
 };
 
 // ─── Column type metadata ─────────────────────────────────────────────────────
@@ -165,6 +199,150 @@ const fieldsToRows = (fields, columnsMap) => {
     if (rows.length === 0) rows.push([null, null]);
     return rows;
 };
+
+function SectionRulesModal({ section, rulesData, onSave, onClose }) {
+    // rulesData shape: { rules: [{id, field, operator, value}], criteria: "ALL" | "ANY" }
+    const [rules, setRules] = useState(() => (rulesData?.rules || []).map((r, i) => ({ ...r, id: r.id || `rule_${Date.now()}_${i}` })));
+    const [criteria, setCriteria] = useState(rulesData?.criteria || "ALL");
+
+    const addRule = () => {
+        setRules((prev) => [
+            ...prev,
+            {
+                id: `rule_${Date.now()}`,
+                field: "title",
+                operator: "equals",
+                value: "",
+            },
+        ]);
+    };
+
+    const updateRule = (id, key, val) => {
+        setRules((prev) => prev.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
+    };
+
+    const removeRule = (id) => {
+        setRules((prev) => prev.filter((r) => r.id !== id));
+    };
+
+    const handleSave = () => {
+        // Filter out rules with empty values
+        const validRules = rules.filter((r) => r.value.trim() !== "");
+        onSave({ rules: validRules, criteria });
+    };
+
+    // Build human-readable criteria label for numbered rules
+    const criteriaLabel = rules.length < 2 ? null : rules.map((_, i) => i + 1).join(criteria === "ALL" ? " AND " : " OR ");
+
+    return (
+        <div className="srm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+            <div className="srm-modal">
+                {/* Header */}
+                <div className="srm-header">
+                    <div className="srm-header-left">
+                        <span className="srm-header-icon">
+                            <Icon.Gear />
+                        </span>
+                        <div>
+                            <h2 className="srm-title">Visibility Rules</h2>
+                            <p className="srm-subtitle">
+                                Section: <strong>{section.title}</strong>
+                            </p>
+                        </div>
+                    </div>
+                    <button className="srm-close" onClick={onClose}>
+                        <Icon.Close />
+                    </button>
+                </div>
+
+                {/* Body */}
+                <div className="srm-body">
+                    <p className="srm-desc">Define who sees this section based on user profile fields. Leave empty to show to everyone.</p>
+
+                    {/* Rules list */}
+                    <div className="srm-rules-list">
+                        {rules.length === 0 && <div className="srm-empty-rules">No rules defined — section is visible to all users.</div>}
+
+                        {rules.map((rule, idx) => (
+                            <div key={rule.id} className="srm-rule-row">
+                                <span className="srm-rule-num">{idx + 1}</span>
+
+                                {/* Field selector */}
+                                <select className="srm-select" value={rule.field} onChange={(e) => updateRule(rule.id, "field", e.target.value)}>
+                                    {USER_PROFILE_FIELDS.map((f) => (
+                                        <option key={f.id} value={f.id}>
+                                            {f.label}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                {/* Operator selector */}
+                                <select
+                                    className="srm-select srm-select-op"
+                                    value={rule.operator}
+                                    onChange={(e) => updateRule(rule.id, "operator", e.target.value)}
+                                >
+                                    {RULE_OPERATORS.map((op) => (
+                                        <option key={op.id} value={op.id}>
+                                            {op.label}
+                                        </option>
+                                    ))}
+                                </select>
+
+                                {/* Value input */}
+                                <input
+                                    className="srm-input"
+                                    type="text"
+                                    value={rule.value}
+                                    placeholder={USER_PROFILE_FIELDS.find((f) => f.id === rule.field)?.placeholder || "Value"}
+                                    onChange={(e) => updateRule(rule.id, "value", e.target.value)}
+                                />
+
+                                <button className="srm-rule-remove" onClick={() => removeRule(rule.id)} title="Remove rule">
+                                    <Icon.Trash />
+                                </button>
+                            </div>
+                        ))}
+                    </div>
+
+                    {/* Add rule button */}
+                    <button className="srm-add-rule" onClick={addRule}>
+                        <Icon.Plus /> Add Rule
+                    </button>
+
+                    {/* Criteria toggle — only show when 2+ rules */}
+                    {rules.length >= 2 && (
+                        <div className="srm-criteria">
+                            <span className="srm-criteria-label">Match:</span>
+                            <div className="srm-criteria-toggle">
+                                <button className={`srm-criteria-btn ${criteria === "ALL" ? "active" : ""}`} onClick={() => setCriteria("ALL")}>
+                                    ALL rules (AND)
+                                </button>
+                                <button className={`srm-criteria-btn ${criteria === "ANY" ? "active" : ""}`} onClick={() => setCriteria("ANY")}>
+                                    ANY rule (OR)
+                                </button>
+                            </div>
+                            <div className="srm-criteria-preview">
+                                <span className="srm-criteria-preview-label">Logic:</span>
+                                <code>{criteriaLabel}</code>
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="srm-footer">
+                    <button className="srm-btn-secondary" onClick={onClose}>
+                        Cancel
+                    </button>
+                    <button className="srm-btn-primary" onClick={handleSave}>
+                        <Icon.Save /> Save Rules
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // BOARD SELECTOR
@@ -353,7 +531,19 @@ function SectionRow({ row, rowIndex, sectionId, onRemoveField, onDragStartField,
 // ═══════════════════════════════════════════════════════════════════════════════
 // SECTION
 // ═══════════════════════════════════════════════════════════════════════════════
-function Section({ section, onAddRow, onRemoveField, onRemoveSection, onRenameSection, onDragStartField, onDropInSlot, onToggleRequired, requiredFields }) {
+function Section({
+    section,
+    onAddRow,
+    onRemoveField,
+    onRemoveSection,
+    onRenameSection,
+    onDragStartField,
+    onDropInSlot,
+    onToggleRequired,
+    requiredFields,
+    onOpenRules,
+    sectionRulesData,
+}) {
     const [editing, setEditing] = useState(false);
     const [title, setTitle] = useState(section.title);
     const inputRef = useRef(null);
@@ -397,6 +587,14 @@ function Section({ section, onAddRow, onRemoveField, onRemoveSection, onRenameSe
                     {section.recordId && <span className="ls-saved-tag">✓ Saved</span>}
                 </div>
                 <div className="ls-header-actions">
+                    <button
+                        className={`ls-btn ${sectionRulesData?.rules?.length > 0 ? "rules-active" : ""}`}
+                        onClick={() => onOpenRules(section.id)}
+                        title="Visibility rules"
+                    >
+                        <Icon.Gear />
+                        {sectionRulesData?.rules?.length > 0 && <span className="ls-rules-badge">{sectionRulesData.rules.length}</span>}
+                    </button>
                     <button className="ls-btn" onClick={() => setEditing(true)} title="Rename">
                         ✏️
                     </button>
@@ -418,6 +616,7 @@ function Section({ section, onAddRow, onRemoveField, onRemoveSection, onRenameSe
                         onDropInSlot={onDropInSlot}
                         onToggleRequired={onToggleRequired}
                         requiredFields={requiredFields}
+
                     />
                 ))}
             </div>
@@ -444,7 +643,12 @@ function Section({ section, onAddRow, onRemoveField, onRemoveSection, onRenameSe
             })()}
         </div>
     );
+
+
 }
+
+
+
 
 // ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
@@ -471,6 +675,25 @@ export default function App() {
     const plsColsRef = useRef(null); // cached PLS board column IDs
     const deletedRecordIds = useRef([]); // record IDs pending deletion on next Save
 
+    const [sectionRules, setSectionRules] = useState({});
+    // shape: { [sectionId]: { rules: [...], criteria: "ALL"|"ANY" } }
+
+    const [rulesModalSectionId, setRulesModalSectionId] = useState(null);
+    // null = closed, string = section id of open modal
+
+    const openRulesModal = (sectionId) => {
+        setRulesModalSectionId(sectionId);
+    };
+
+    const closeRulesModal = () => {
+        setRulesModalSectionId(null);
+    };
+
+    const saveRules = (sectionId, rulesData) => {
+        setSectionRules((prev) => ({ ...prev, [sectionId]: rulesData }));
+        setRulesModalSectionId(null);
+    };
+
     // ── Load boards on mount
     useEffect(() => {
         getAllBoards().then((res) => {
@@ -487,35 +710,34 @@ export default function App() {
         if (!res.success) throw new Error("Cannot access PageLayoutSections board: " + res.error);
         const find = (title) => res.columns.find((c) => c.title === title);
         const boardIdCol = find(PLS_COL_TITLE_BOARDID);
-        const sectionsCol = find(PLS_COL_TITLE_SECTIONS_JSON);
+        const fieldsCol = find(PLS_COL_TITLE_FIELDS);
         const orderCol = find(PLS_COL_TITLE_SECTIONS_ORDER);
-        if (!boardIdCol || !sectionsCol || !orderCol)
+        const rulesCol = find(PLS_COL_TITLE_RULES);
+
+        if (!boardIdCol || !fieldsCol || !orderCol)
             throw new Error(
                 `Missing required columns in PageLayoutSections board.\n` +
-                    `Expected: "${PLS_COL_TITLE_BOARDID}", "${PLS_COL_TITLE_SECTIONS_JSON}", "${PLS_COL_TITLE_SECTIONS_ORDER}".\n` +
+                    `Expected: "${PLS_COL_TITLE_BOARDID}", "${PLS_COL_TITLE_FIELDS}", "${PLS_COL_TITLE_SECTIONS_ORDER}".\n` +
                     `Found: ${res.columns.map((c) => `"${c.title}"`).join(", ")}`,
             );
+
         plsColsRef.current = {
             boardIdColId: boardIdCol.id,
-            sectionsColId: sectionsCol.id,
+            fieldsColId: fieldsCol.id,
             orderColId: orderCol.id,
+            rulesColId: rulesCol?.id || null,
         };
         return plsColsRef.current;
     };
 
     // ── Fetch existing layout for a board
     const fetchExistingLayout = async (boardId, columnsMap) => {
+        console.log("Fetch existing layout ");
         setLayoutLoading(true);
         try {
             const plsCols = await ensurePLSCols();
-            const matchingRecords = await getPageLayoutSectionRecords(boardId, plsCols.boardIdColId);
-
-            // Debug: log what we got back and whether sections parse correctly
-            matchingRecords.forEach((item) => {
-                const sv = item.column_values.find((c) => c.id === plsCols.sectionsColId);
-                const parsed = parseLongTextJSON(sv);
-            });
-
+            const matchingRecords = await getPageLayoutSectionRecords(boardId);
+            console.log("Fetch existing layout, pls records ", matchingRecords);
             if (matchingRecords.length === 0) {
                 setSections([makeSection("Board Information", 1)]);
                 setPlacedColIds(new Set());
@@ -528,46 +750,92 @@ export default function App() {
 
             const built = matchingRecords
                 .map((item) => {
-                    const sectionsCV = item.column_values.find((c) => c.id === plsCols.sectionsColId);
+                    // NEW: fields live in the dedicated fields column
+                    console.log("C400 in loop of matching records ", item);
+                    console.log("in loop of matching records pls cols = ", plsCols);
+                    const fieldsCV = item.column_values.find((c) => c.id === plsCols.fieldsColId);
                     const orderCV = item.column_values.find((c) => c.id === plsCols.orderColId);
                     const order = parseInt(orderCV?.text || "0") || 0;
 
-                    // KEY FIX: use parseLongTextJSON instead of safeParseSectionJSON
-                    const sectionData = parseLongTextJSON(sectionsCV);
+                    console.log("in loop of matching records fields cv = ", fieldsCV, ", cv id => ", plsCols.fieldsColId);
+                    console.log("in loop of matching records fields cv datatype = ", typeof fieldsCV);
 
-                    if (!sectionData) {
-                        console.warn("[PLB] Skipping item - could not parse sectionData for:", item.name, item.id);
+                    console.log("in loop of matching records fields order cv = ", orderCV, ", cv id => ", plsCols.orderColId);
+
+                    // Parse the fields array
+                    let fields = parseFieldsArrayJSON(fieldsCV);
+                    console.log("Fields ", fields);
+
+                    // Load section rules from the rules column
+                    const rulesCV = plsCols.rulesColId ? item.column_values.find((c) => c.id === plsCols.rulesColId) : null;
+                    let loadedRules = { rules: [], criteria: "ALL" };
+                    if (rulesCV) {
+                        // Try cv.text first (raw stored string), then cv.value wrapper
+                        const rawText = rulesCV.text?.trim();
+                        const rawValue = (() => {
+                            try {
+                                const outer = JSON.parse(rulesCV.value || "");
+                                return typeof outer.text === "string" ? outer.text : null;
+                            } catch (_) {
+                                return null;
+                            }
+                        })();
+                        const jsonStr = rawText?.startsWith("{") ? rawText : rawValue;
+                        if (jsonStr) {
+                            try {
+                                loadedRules = JSON.parse(jsonStr);
+                            } catch (_) {}
+                        }
+                    }
+
+                    if (!fields) {
+                        console.warn(`[PLB] Skipping "${item.name}" (${item.id}) — no parseable fields found`);
                         return null;
                     }
 
-                    const rows = fieldsToRows(sectionData.fields || [], columnsMap);
+                    const rows = fieldsToRows(fields, columnsMap);
+
+                    // Add trailing empty row for drop targets
+                    const lastRow = rows[rows.length - 1];
+                    if (lastRow && (lastRow[0] !== null || lastRow[1] !== null)) {
+                        rows.push([null, null]);
+                    }
 
                     rows.forEach((row) =>
                         row.forEach((col) => {
                             if (col) {
                                 placed.add(col.id);
-                                const field = (sectionData.fields || []).find((f) => f.columnId === col.id);
+                                const field = fields.find((f) => f.columnId === col.id);
                                 if (field?.isRequired === "true") required.add(col.id);
                             }
                         }),
                     );
 
                     return {
-                        id: sectionData.id || makeSectionId(),
-                        title: sectionData.title || item.name,
+                        // NEW: use monday item id/name directly — no more embedded id/title
+                        id: item.id, // section id IS the monday item id
+                        title: item.name, // section title IS the monday item name
                         order,
-                        isDefault: sectionData.isDefault || "false",
-                        recordId: item.id,
+                        isDefault: "false", // isDefault no longer stored in JSON; hardcode false
+                        recordId: item.id, // same as id — kept for save logic compatibility
                         rows,
                     };
                 })
                 .filter(Boolean)
                 .sort((a, b) => a.order - b.order);
 
+            const rulesMap = {};
+            built.forEach((sec) => {
+                if (sec._loadedRules) {
+                    rulesMap[sec.id] = sec._loadedRules;
+                    delete sec._loadedRules; // clean up temp field
+                }
+            });
             setSections(built.length > 0 ? built : [makeSection("Board Information", 1)]);
             setPlacedColIds(placed);
             setRequiredFields(required);
         } catch (err) {
+            console.error("[PLB] fetchExistingLayout error:", err);
             setSections([makeSection("Board Information", 1)]);
             setSaveMsg({ type: "error", text: "Could not load existing layout: " + err.message });
         } finally {
@@ -766,27 +1034,30 @@ export default function App() {
             }
 
             // ── Step 2: Create / update each remaining section ──────────────────────
+            console.log("Handle Save: Rows to fields sections ", sections);
             for (let i = 0; i < sections.length; i++) {
                 const sec = sections[i];
-                const fields = rowsToFields(sec.rows, requiredFields);
 
-                const sectionPayload = {
-                    id: sec.id,
-                    title: sec.title,
-                    isDefault: sec.isDefault,
-                    fields,
-                };
+                // NEW: just the fields array — no id/title/isDefault wrapper
+                const fields = rowsToFields(sec.rows, requiredFields);
+                const fieldsFormatted = { fields: fields };
+                console.log("Rows to fields ", fields);
+                const rulesForSection = sectionRules[sec.id] || sectionRules[sec.recordId] || { rules: [], criteria: "ALL" };
 
                 const columnValues = {
                     [plsCols.boardIdColId]: String(selectedBoard.id),
-                    [plsCols.sectionsColId]: JSON.stringify(sectionPayload),
+                    [plsCols.fieldsColId]: JSON.stringify(fieldsFormatted), // NEW: fields array only
                     [plsCols.orderColId]: i + 1,
+                    ...(plsCols.rulesColId && {
+                        [plsCols.rulesColId]: JSON.stringify(rulesForSection),
+                    }),
                 };
 
                 try {
                     if (sec.recordId) {
-                        // UPDATE existing record
-                        const mutation = `
+                        // UPDATE: change column values AND item name (title)
+                        // Step A: update column values
+                        const colMutation = `
                             mutation($boardId: ID!, $itemId: ID!, $columnValues: JSON!) {
                                 change_multiple_column_values(
                                     board_id: $boardId
@@ -795,17 +1066,37 @@ export default function App() {
                                 ) { id }
                             }
                         `;
-                        await monday.api(mutation, {
+                        await monday.api(colMutation, {
                             variables: {
                                 boardId: String(PAGELAYOUTSECTION_BOARDID),
                                 itemId: String(sec.recordId),
                                 columnValues: JSON.stringify(columnValues),
                             },
                         });
+
+                        // Step B: update item name if title has changed
+                        // (monday item name = section title)
+                        const nameMutation = `
+                            mutation($boardId: ID!, $itemId: ID!, $value: String!) {
+                                change_simple_column_value(
+                                    board_id: $boardId
+                                    item_id: $itemId
+                                    column_id: "name"
+                                    value: $value
+                                ) { id }
+                            }
+                        `;
+                        await monday.api(nameMutation, {
+                            variables: {
+                                boardId: String(PAGELAYOUTSECTION_BOARDID),
+                                itemId: String(sec.recordId),
+                                value: sec.title,
+                            },
+                        });
                         ok++;
                     } else {
-                        // CREATE new record
-                        const mutation = `
+                        // CREATE: item name becomes section title
+                        const createMutation = `
                             mutation($boardId: ID!, $itemName: String!, $columnValues: JSON!) {
                                 create_item(
                                     board_id: $boardId
@@ -814,7 +1105,7 @@ export default function App() {
                                 ) { id }
                             }
                         `;
-                        const res = await monday.api(mutation, {
+                        const res = await monday.api(createMutation, {
                             variables: {
                                 boardId: String(PAGELAYOUTSECTION_BOARDID),
                                 itemName: sec.title,
@@ -823,7 +1114,8 @@ export default function App() {
                         });
                         const newId = res?.data?.create_item?.id;
                         if (newId) {
-                            // Patch state so next save updates rather than creates
+                            // Patch section: recordId = monday item id
+                            // id stays as temp id for React keying
                             setSections((prev) => prev.map((s) => (s.id === sec.id ? { ...s, recordId: newId } : s)));
                         }
                         ok++;
@@ -853,6 +1145,19 @@ export default function App() {
 
     return (
         <div className="plb-app">
+            {/* Visibility Rules Modal */}
+            {rulesModalSectionId && (() => {
+                const modalSection = sections.find((s) => s.id === rulesModalSectionId);
+                if (!modalSection) return null;
+                return (
+                    <SectionRulesModal
+                        section={modalSection}
+                        rulesData={sectionRules[rulesModalSectionId] || { rules: [], criteria: "ALL" }}
+                        onSave={(rulesData) => saveRules(rulesModalSectionId, rulesData)}
+                        onClose={closeRulesModal}
+                    />
+                );
+            })()}
             {/* Topbar */}
             <header className="plb-topbar">
                 <div className="plb-topbar-left">
@@ -1000,6 +1305,8 @@ export default function App() {
                                         onDropInSlot={handleDropInSlot}
                                         onToggleRequired={handleToggleRequired}
                                         requiredFields={requiredFields}
+                                        onOpenRules={openRulesModal}                          // ADD
+                                        sectionRulesData={sectionRules[sec.id] || null}
                                     />
                                 ))}
                             </div>
