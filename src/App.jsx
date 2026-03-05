@@ -200,25 +200,33 @@ const makeSection = (title, order) => ({
     rows:      [[null, null]],
 });
 
-const RULES_FIELD_TYPES = new Set(["people", "board_relation"]);
+// Types that support maxValues (relation / people)
+const MAX_VALUES_TYPES = new Set(["board_relation", "people"]);
+// Types that support maxFiles
+const MAX_FILES_TYPES  = new Set(["file"]);
 
 /** Convert a section's rows + requiredSet → flat fields array (for JSON storage) */
-const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldValRules = {}, fieldHelpTexts = {}) =>
+const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldValRules = {}, fieldConfigs = {}) =>
     rows.flatMap((row) =>
         row.filter(Boolean).map((col) => {
+            const cfg = fieldConfigs[col.id] || {};
             const field = {
                 id: `field_${col.id}`,
                 columnId: col.id,
                 type: col.type,
                 isRequired: requiredSet.has(col.id) ? "true" : "false",
             };
-            if (RULES_FIELD_TYPES.has(col.type)) {
-                field.maxValues = 1000;
+            // maxValues — default 1000 for relation/people types
+            if (MAX_VALUES_TYPES.has(col.type)) {
+                field.maxValues = (cfg.maxValues !== undefined && cfg.maxValues !== "") ? Number(cfg.maxValues) : 1000;
             }
-            // Embed help text if defined
-            const ht = fieldHelpTexts[col.id];
-            if (ht && ht.trim()) {
-                field.helptext = ht.trim();
+            // maxFiles — default 10 for file type
+            if (MAX_FILES_TYPES.has(col.type)) {
+                field.maxFiles = (cfg.maxFiles !== undefined && cfg.maxFiles !== "") ? Number(cfg.maxFiles) : 10;
+            }
+            // helptext
+            if (cfg.helptext && cfg.helptext.trim()) {
+                field.helptext = cfg.helptext.trim();
             }
             // Embed field-level visibility rules if any defined
             const vr = fieldVisRules[col.id];
@@ -257,9 +265,9 @@ const fieldsToRows = (fields, columnsMap) => {
 // JSON SERIALISATION / DESERIALISATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-function serialiseSectionsJSON(sections, requiredFields, sectionRules, fieldVisRules = {}, fieldValRules = {}, fieldHelpTexts = {}) {
+function serialiseSectionsJSON(sections, requiredFields, sectionRules, fieldVisRules = {}, fieldValRules = {}, fieldConfigs = {}) {
     const payload = sections.map((sec, idx) => {
-        const fields = rowsToFields(sec.rows, requiredFields, fieldVisRules, fieldValRules, fieldHelpTexts);
+        const fields = rowsToFields(sec.rows, requiredFields, fieldVisRules, fieldValRules, fieldConfigs);
 
         const rawRules = sectionRules[sec.id] || { rules: [], criteria: "ALL" };
         const conditions = (rawRules.rules || []).map((r, i) => ({
@@ -307,8 +315,8 @@ function deserialiseSectionsJSON(raw, columnsMap) {
     const required    = new Set();
     const rulesMap    = {};
     const visRulesMap = {};
-    const valRulesMap = {}; // { [columnId]: { conditions, criteria, error? } }
-    const helpTextMap = {}; // { [columnId]: string }
+    const valRulesMap    = {}; // { [columnId]: { conditions, criteria, error? } }
+    const fieldConfigsMap = {}; // { [columnId]: { helptext?, maxValues?, maxFiles? } }
 
     const sections = sectionsData
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -327,10 +335,12 @@ function deserialiseSectionsJSON(raw, columnsMap) {
                     placed.add(col.id);
                     const fieldDef = fields.find((f) => f.columnId === col.id);
                     if (fieldDef?.isRequired === "true") required.add(col.id);
-                    // Restore help text
-                    if (fieldDef?.helptext) {
-                        helpTextMap[col.id] = fieldDef.helptext;
-                    }
+                    // Restore field config (helptext, maxValues, maxFiles)
+                    const cfg = {};
+                    if (fieldDef?.helptext)  cfg.helptext  = fieldDef.helptext;
+                    if (fieldDef?.maxValues !== undefined) cfg.maxValues = fieldDef.maxValues;
+                    if (fieldDef?.maxFiles  !== undefined) cfg.maxFiles  = fieldDef.maxFiles;
+                    if (Object.keys(cfg).length > 0) fieldConfigsMap[col.id] = cfg;
                     // Restore visibility rules
                     if (fieldDef?.visibilityRules?.conditions?.length) {
                         visRulesMap[col.id] = {
@@ -377,7 +387,7 @@ function deserialiseSectionsJSON(raw, columnsMap) {
         sectionRules:   rulesMap,
         fieldVisibilityRules: visRulesMap,
         fieldValidityRules:   valRulesMap,
-        fieldHelpTexts:       helpTextMap,
+        fieldConfigs:         fieldConfigsMap,
     };
 }
 
@@ -587,78 +597,71 @@ function ColumnChip({ col, onDragStart }) {
 
 // ─────────────────────────────────────────────────────────────────────────────
 // LAYOUT FIELD
-// Changes: added hasValRules prop + CheckShield validity button + helpText
 // ─────────────────────────────────────────────────────────────────────────────
-function LayoutField({ col, isRequired, hasVisRules, hasValRules, helpText, onRemove, onDragStart, onToggleRequired, onOpenVisRules, onOpenValRules, onHelpTextChange }) {
+function LayoutField({ col, isRequired, hasVisRules, hasValRules, fieldConfig, onRemove, onDragStart, onToggleRequired, onOpenVisRules, onOpenValRules, onOpenConfig }) {
     const meta = getTypeMeta(col.type);
     const stopDrag = (e) => e.stopPropagation();
     const showValidity = supportsValidityRules(col.type);
-    const [helpFocused, setHelpFocused] = useState(false);
+    const hasConfig = !!(fieldConfig?.helptext || fieldConfig?.maxValues !== undefined || fieldConfig?.maxFiles !== undefined);
 
     return (
         <div
-            className={`lfield ${isRequired ? "required" : ""} ${hasVisRules ? "has-vis-rules" : ""} ${hasValRules ? "has-val-rules" : ""} ${helpText ? "has-helptext" : ""}`}
+            className={`lfield ${isRequired ? "required" : ""} ${hasVisRules ? "has-vis-rules" : ""} ${hasValRules ? "has-val-rules" : ""} ${hasConfig ? "has-config" : ""}`}
             draggable
             onDragStart={(e) => onDragStart(e, col)}
         >
-            <div className="lfield-main-row">
-                <span className="lfield-grip"><Icon.Grip /></span>
-                <span className="lfield-dot" style={{ background: meta.color }} />
-                <span className="lfield-name">{col.title}</span>
-                <span className="lfield-type">{meta.label}</span>
+            <span className="lfield-grip"><Icon.Grip /></span>
+            <span className="lfield-dot" style={{ background: meta.color }} />
+            <span className="lfield-name">{col.title}</span>
+            <span className="lfield-type">{meta.label}</span>
+            <button
+                className={`lfield-req ${isRequired ? "on" : ""}`}
+                onMouseDown={stopDrag}
+                onClick={() => onToggleRequired(col.id)}
+                title={isRequired ? "Mark optional" : "Mark required"}
+            >
+                <Icon.Star />
+                <span>{isRequired ? "Required" : "Optional"}</span>
+            </button>
+            {/* Field config gear — help text, maxValues, maxFiles */}
+            <button
+                className={`lfield-config ${hasConfig ? "active" : ""}`}
+                onMouseDown={stopDrag}
+                onClick={(e) => { e.stopPropagation(); onOpenConfig(col); }}
+                title={hasConfig ? "Edit field settings" : "Field settings"}
+            >
+                <Icon.Gear />
+                {hasConfig && <span className="lfield-config-badge" />}
+            </button>
+            <button
+                className={`lfield-eye ${hasVisRules ? "active" : ""}`}
+                onMouseDown={stopDrag}
+                onClick={(e) => { e.stopPropagation(); onOpenVisRules(col); }}
+                title={hasVisRules ? "Edit visibility rules" : "Add visibility rules"}
+            >
+                <Icon.Eye />
+                {hasVisRules && <span className="lfield-eye-badge" />}
+            </button>
+            {/* Validity button — only shown for supported column types */}
+            {showValidity && (
                 <button
-                    className={`lfield-req ${isRequired ? "on" : ""}`}
+                    className={`lfield-validity ${hasValRules ? "active" : ""}`}
                     onMouseDown={stopDrag}
-                    onClick={() => onToggleRequired(col.id)}
-                    title={isRequired ? "Mark optional" : "Mark required"}
+                    onClick={(e) => { e.stopPropagation(); onOpenValRules(col); }}
+                    title={hasValRules ? "Edit validity rules" : "Add validity rules"}
                 >
-                    <Icon.Star />
-                    <span>{isRequired ? "Required" : "Optional"}</span>
+                    <Icon.CheckShield />
+                    {hasValRules && <span className="lfield-validity-badge" />}
                 </button>
-                <button
-                    className={`lfield-eye ${hasVisRules ? "active" : ""}`}
-                    onMouseDown={stopDrag}
-                    onClick={(e) => { e.stopPropagation(); onOpenVisRules(col); }}
-                    title={hasVisRules ? "Edit visibility rules" : "Add visibility rules"}
-                >
-                    <Icon.Eye />
-                    {hasVisRules && <span className="lfield-eye-badge" />}
-                </button>
-                {/* Validity button — only shown for supported column types */}
-                {showValidity && (
-                    <button
-                        className={`lfield-validity ${hasValRules ? "active" : ""}`}
-                        onMouseDown={stopDrag}
-                        onClick={(e) => { e.stopPropagation(); onOpenValRules(col); }}
-                        title={hasValRules ? "Edit validity rules" : "Add validity rules"}
-                    >
-                        <Icon.CheckShield />
-                        {hasValRules && <span className="lfield-validity-badge" />}
-                    </button>
-                )}
-                <button
-                    className="lfield-remove"
-                    onMouseDown={stopDrag}
-                    onClick={() => onRemove(col.id)}
-                    title="Remove field"
-                >
-                    <Icon.Trash />
-                </button>
-            </div>
-            {/* Help text row — revealed on hover/focus */}
-            <div className={`lfield-helptext-row ${helpText || helpFocused ? "visible" : ""}`}>
-                <span className="lfield-helptext-icon">💬</span>
-                <input
-                    className="lfield-helptext-input"
-                    type="text"
-                    value={helpText || ""}
-                    placeholder="Add help text (optional)…"
-                    onMouseDown={stopDrag}
-                    onFocus={() => setHelpFocused(true)}
-                    onBlur={() => setHelpFocused(false)}
-                    onChange={(e) => onHelpTextChange(col.id, e.target.value)}
-                />
-            </div>
+            )}
+            <button
+                className="lfield-remove"
+                onMouseDown={stopDrag}
+                onClick={() => onRemove(col.id)}
+                title="Remove field"
+            >
+                <Icon.Trash />
+            </button>
         </div>
     );
 }
@@ -672,7 +675,7 @@ function SectionRow({
     onToggleRequired, requiredFields,
     fieldVisibilityRules, onOpenVisRules,
     fieldValidityRules, onOpenValRules,
-    fieldHelpTexts, onHelpTextChange,
+    fieldConfigs, onOpenConfig,
 }) {
     const [overSlot, setOverSlot] = useState(null);
     return (
@@ -693,13 +696,13 @@ function SectionRow({
                                 isRequired={requiredFields.has(col.id)}
                                 hasVisRules={!!(fieldVisibilityRules?.[col.id]?.conditions?.length)}
                                 hasValRules={!!(fieldValidityRules?.[col.id]?.conditions?.length)}
-                                helpText={fieldHelpTexts?.[col.id] || ""}
+                                fieldConfig={fieldConfigs?.[col.id] || null}
                                 onRemove={(id) => onRemoveField(sectionId, rowIndex, slotIdx, id)}
                                 onDragStart={onDragStartField}
                                 onToggleRequired={onToggleRequired}
                                 onOpenVisRules={onOpenVisRules}
                                 onOpenValRules={onOpenValRules}
-                                onHelpTextChange={onHelpTextChange}
+                                onOpenConfig={onOpenConfig}
                             />
                         ) : (
                             <div className="ls-slot-hint">Drop a field here</div>
@@ -720,7 +723,7 @@ function Section({
     onOpenRules, sectionRulesData,
     fieldVisibilityRules, onOpenVisRules,
     fieldValidityRules, onOpenValRules,
-    fieldHelpTexts, onHelpTextChange,
+    fieldConfigs, onOpenConfig,
 }) {
     const [editing, setEditing] = useState(false);
     const [title, setTitle] = useState(section.title);
@@ -786,8 +789,8 @@ function Section({
                         onOpenVisRules={onOpenVisRules}
                         fieldValidityRules={fieldValidityRules}
                         onOpenValRules={onOpenValRules}
-                        fieldHelpTexts={fieldHelpTexts}
-                        onHelpTextChange={onHelpTextChange}
+                        fieldConfigs={fieldConfigs}
+                        onOpenConfig={onOpenConfig}
                     />
                 ))}
             </div>
@@ -797,6 +800,144 @@ function Section({
                     Drag fields from above to get started
                 </div>
             )}
+        </div>
+    );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// FIELD CONFIG MODAL
+// Gear-icon popup: helptext + maxValues (board_relation/people) + maxFiles (files)
+// ─────────────────────────────────────────────────────────────────────────────
+function FieldConfigModal({ col, configData, onSave, onClose }) {
+    const colMeta = getTypeMeta(col.type);
+    const showMaxValues = MAX_VALUES_TYPES.has(col.type);
+    const showMaxFiles  = MAX_FILES_TYPES.has(col.type);
+
+    const [helptext,  setHelptext]  = useState(configData?.helptext  ?? "");
+    const [maxValues, setMaxValues] = useState(
+        configData?.maxValues !== undefined ? String(configData.maxValues) : "1000"
+    );
+    const [maxFiles,  setMaxFiles]  = useState(
+        configData?.maxFiles  !== undefined ? String(configData.maxFiles)  : "10"
+    );
+    const [error, setError] = useState("");
+
+    const handleSave = () => {
+        setError("");
+        if (showMaxValues) {
+            const n = parseInt(maxValues, 10);
+            if (!maxValues || isNaN(n) || n < 1 || n > 1000) {
+                setError("Max values must be a whole number between 1 and 1000.");
+                return;
+            }
+        }
+        if (showMaxFiles) {
+            const n = parseInt(maxFiles, 10);
+            if (!maxFiles || isNaN(n) || n < 1 || n > 100) {
+                setError("Max files must be a whole number between 1 and 100.");
+                return;
+            }
+        }
+        const cfg = {};
+        if (helptext.trim()) cfg.helptext = helptext.trim();
+        if (showMaxValues)   cfg.maxValues = parseInt(maxValues, 10);
+        if (showMaxFiles)    cfg.maxFiles  = parseInt(maxFiles,  10);
+        onSave(cfg);
+    };
+
+    return (
+        <div className="fcm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+            <div className="fcm-modal">
+                {/* Header */}
+                <div className="fcm-header">
+                    <div className="fcm-header-left">
+                        <div className="fcm-header-icon">
+                            <Icon.Gear />
+                        </div>
+                        <div>
+                            <h2 className="fcm-title">Field Settings</h2>
+                            <span className="fcm-field-pill">
+                                <span className="fcm-field-dot" style={{ background: colMeta.color }} />
+                                {col.title}
+                                <span className="fcm-field-type">{colMeta.label}</span>
+                            </span>
+                        </div>
+                    </div>
+                    <button className="fcm-close" onClick={onClose} title="Close"><Icon.Close /></button>
+                </div>
+
+                {/* Body */}
+                <div className="fcm-body">
+                    {/* Help text */}
+                    <div className="fcm-field-group">
+                        <label className="fcm-label">
+                            <span className="fcm-label-icon">💬</span>
+                            Help text
+                            <span className="fcm-label-hint">optional — shown below the field in the form</span>
+                        </label>
+                        <input
+                            className="fcm-input"
+                            type="text"
+                            value={helptext}
+                            placeholder="e.g. Enter a value between 1 and 100"
+                            onChange={(e) => setHelptext(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+
+                    {/* Max Values — board_relation / people */}
+                    {showMaxValues && (
+                        <div className="fcm-field-group">
+                            <label className="fcm-label">
+                                <span className="fcm-label-icon">🔢</span>
+                                Max values
+                                <span className="fcm-label-hint">max items user can select (1 – 1000)</span>
+                            </label>
+                            <input
+                                className="fcm-input fcm-input-sm"
+                                type="number"
+                                min="1"
+                                max="1000"
+                                value={maxValues}
+                                onChange={(e) => setMaxValues(e.target.value)}
+                            />
+                        </div>
+                    )}
+
+                    {/* Max Files — files type */}
+                    {showMaxFiles && (
+                        <div className="fcm-field-group">
+                            <label className="fcm-label">
+                                <span className="fcm-label-icon">📎</span>
+                                Max files
+                                <span className="fcm-label-hint">max number of files user can attach (1 – 100)</span>
+                            </label>
+                            <input
+                                className="fcm-input fcm-input-sm"
+                                type="number"
+                                min="1"
+                                max="100"
+                                value={maxFiles}
+                                onChange={(e) => setMaxFiles(e.target.value)}
+                            />
+                        </div>
+                    )}
+
+                    {error && (
+                        <div className="fcm-error">
+                            <span>⚠️</span> {error}
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="fcm-footer">
+                    <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="srm-btn-primary" onClick={handleSave}>
+                        <Icon.Check /> Save
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -1415,8 +1556,9 @@ export default function App() {
     const [fieldValidityRules, setFieldValidityRules]   = useState({});
     const [valRulesModalColId, setValRulesModalColId]   = useState(null);
 
-    // ── Field help texts ──────────────────────────────────────────────────────
-    const [fieldHelpTexts, setFieldHelpTexts] = useState({});
+    // ── Field configs (helptext, maxValues, maxFiles) ─────────────────────────
+    const [fieldConfigs, setFieldConfigs]         = useState({});
+    const [configModalColId, setConfigModalColId] = useState(null);
 
     // ── Child boards ──────────────────────────────────────────────────────────
     const [allChildBoards,     setAllChildBoards]     = useState([]);
@@ -1476,7 +1618,7 @@ export default function App() {
                 setSectionRules({});
                 setFieldVisibilityRules({});
                 setFieldValidityRules({});
-                setFieldHelpTexts({});
+                setFieldConfigs({});
                 setPlacedChildBoards([]);
                 return;
             }
@@ -1505,7 +1647,7 @@ export default function App() {
                 setSectionRules({});
                 setFieldVisibilityRules({});
                 setFieldValidityRules({});
-                setFieldHelpTexts({});
+                setFieldConfigs({});
                 setPlacedChildBoards([]);
                 return;
             }
@@ -1516,7 +1658,7 @@ export default function App() {
             setSectionRules(parsed.sectionRules);
             setFieldVisibilityRules(parsed.fieldVisibilityRules || {});
             setFieldValidityRules(parsed.fieldValidityRules || {});
-            setFieldHelpTexts(parsed.fieldHelpTexts || {});
+            setFieldConfigs(parsed.fieldConfigs || {});
 
             if (plsCols.childBoardsColId) {
                 const cbCV = record.column_values.find((cv) => cv.id === plsCols.childBoardsColId);
@@ -1552,9 +1694,10 @@ export default function App() {
         setSectionRules({});
         setFieldVisibilityRules({});
         setFieldValidityRules({});   // NEW
-        setFieldHelpTexts({});
+        setFieldConfigs({});
         setVisRulesModalColId(null);
-        setValRulesModalColId(null); // NEW
+        setValRulesModalColId(null);
+        setConfigModalColId(null);
         setLayoutRecordId(null);
         setSaveMsg(null);
         setPlacedChildBoards([]);
@@ -1637,10 +1780,11 @@ export default function App() {
                 setPlacedColIds((p)       => { const n = new Set(p); n.delete(removed.id); return n; });
                 setRequiredFields((p)     => { const n = new Set(p); n.delete(removed.id); return n; });
                 setFieldVisibilityRules((p) => { const n = { ...p }; delete n[removed.id]; return n; });
-                setFieldValidityRules((p)   => { const n = { ...p }; delete n[removed.id]; return n; }); // NEW
-                setFieldHelpTexts((p)       => { const n = { ...p }; delete n[removed.id]; return n; });
+                setFieldValidityRules((p)   => { const n = { ...p }; delete n[removed.id]; return n; });
+                setFieldConfigs((p)         => { const n = { ...p }; delete n[removed.id]; return n; });
                 setVisRulesModalColId((cur) => (cur === removed.id ? null : cur));
-                setValRulesModalColId((cur) => (cur === removed.id ? null : cur));                        // NEW
+                setValRulesModalColId((cur) => (cur === removed.id ? null : cur));
+                setConfigModalColId((cur)   => (cur === removed.id ? null : cur));
             }
             while (sec.rows.length > 1) {
                 const last       = sec.rows[sec.rows.length - 1];
@@ -1770,11 +1914,18 @@ export default function App() {
         setValRulesModalColId(null);
     };
 
-    // ── Field help text handler ──────────────────────────────────────────────
-    const handleHelpTextChange = (colId, value) => {
-        setFieldHelpTexts((prev) =>
-            value.trim() ? { ...prev, [colId]: value } : (() => { const n = { ...prev }; delete n[colId]; return n; })()
-        );
+    // ── Field config handlers (helptext, maxValues, maxFiles) ─────────────────
+    const openConfigModal  = (col) => setConfigModalColId(col.id);
+    const closeConfigModal = ()    => setConfigModalColId(null);
+
+    const saveFieldConfig = (colId, cfg) => {
+        setFieldConfigs((prev) => {
+            if (!cfg || Object.keys(cfg).length === 0) {
+                const n = { ...prev }; delete n[colId]; return n;
+            }
+            return { ...prev, [colId]: cfg };
+        });
+        setConfigModalColId(null);
     };
 
     // ── Section rule handlers (unchanged) ────────────────────────────────────
@@ -1796,7 +1947,7 @@ export default function App() {
 
             // Pass fieldValidityRules as 5th arg to serialiser
             const sectionsJson = serialiseSectionsJSON(
-                sections, requiredFields, sectionRules, fieldVisibilityRules, fieldValidityRules, fieldHelpTexts
+                sections, requiredFields, sectionRules, fieldVisibilityRules, fieldValidityRules, fieldConfigs
             );
             console.log("[PLB] Saving sections JSON:", sectionsJson);
 
@@ -1910,7 +2061,7 @@ export default function App() {
                 );
             })()}
 
-            {/* Field Validity Rules Modal ← NEW */}
+            {/* Field Validity Rules Modal */}
             {valRulesModalColId && (() => {
                 const modalCol = findModalCol(valRulesModalColId);
                 if (!modalCol) return null;
@@ -1921,6 +2072,20 @@ export default function App() {
                         rulesData={fieldValidityRules[valRulesModalColId] || { conditions: [], criteria: "" }}
                         onSave={(rulesData) => saveValRulesForField(valRulesModalColId, rulesData)}
                         onClose={closeValRulesModal}
+                    />
+                );
+            })()}
+
+            {/* Field Config Modal (gear icon) */}
+            {configModalColId && (() => {
+                const modalCol = findModalCol(configModalColId);
+                if (!modalCol) return null;
+                return (
+                    <FieldConfigModal
+                        col={modalCol}
+                        configData={fieldConfigs[configModalColId] || null}
+                        onSave={(cfg) => saveFieldConfig(configModalColId, cfg)}
+                        onClose={closeConfigModal}
                     />
                 );
             })()}
@@ -2100,8 +2265,8 @@ export default function App() {
                                         onOpenVisRules={openVisRulesModal}
                                         fieldValidityRules={fieldValidityRules}
                                         onOpenValRules={openValRulesModal}
-                                        fieldHelpTexts={fieldHelpTexts}
-                                        onHelpTextChange={handleHelpTextChange}
+                                        fieldConfigs={fieldConfigs}
+                                        onOpenConfig={openConfigModal}
                                     />
                                 ))}
                             </div>

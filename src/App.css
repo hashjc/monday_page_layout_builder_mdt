@@ -1,6 +1,15 @@
 /* ═══════════════════════════════════════════════════════
    PAGE LAYOUT BUILDER — App.css (MERGED)
    monday.com native design language
+
+   INCLUDES:
+   - Original Page Layout Builder styles (plb-*)
+   - Related Lists / Child Boards styles (rl-*)
+   - Phone input styles (phone-*)
+   - File upload styles (file-*)
+   - Timeline & Doc field styles
+
+   NO CONFLICTS: All new styles are properly namespaced
 ═══════════════════════════════════════════════════════ */
 
 :root {
@@ -1497,84 +1506,6 @@ body {
 .fvm-clear-btn:hover { background: #fde8ec; border-color: #e44258; }
 
 /* ═══════════════════════════════════════════════════════
-   HELP TEXT (hover-reveal under each field)
-   ─────────────────────────────────────────────────────── */
-
-/* Wrap the existing top row so we can stack the helptext row below */
-.lfield-main-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    width: 100%;
-}
-
-/* Help text row — hidden by default, slides in on hover or when content exists */
-.lfield-helptext-row {
-    display: flex;
-    align-items: center;
-    gap: 6px;
-    max-height: 0;
-    overflow: hidden;
-    opacity: 0;
-    transition: max-height 0.18s ease, opacity 0.15s ease, padding 0.15s ease;
-    padding: 0 0 0 26px; /* align with field name */
-}
-
-/* Reveal on: parent hover, or when .visible class is set (content exists or focused) */
-.lfield:hover .lfield-helptext-row,
-.lfield-helptext-row.visible {
-    max-height: 40px;
-    opacity: 1;
-    padding: 4px 0 2px 26px;
-}
-
-.lfield-helptext-icon {
-    font-size: 11px;
-    opacity: 0.5;
-    flex-shrink: 0;
-    line-height: 1;
-}
-
-.lfield-helptext-input {
-    flex: 1;
-    height: 24px;
-    font-size: 11px;
-    color: var(--text-2);
-    background: transparent;
-    border: none;
-    border-bottom: 1px dashed var(--border);
-    border-radius: 0;
-    padding: 0 4px;
-    outline: none;
-    transition: border-color 0.15s, background 0.15s;
-}
-
-.lfield-helptext-input:focus {
-    background: #f8f9ff;
-    border-bottom-color: var(--blue);
-    border-radius: 3px 3px 0 0;
-}
-
-.lfield-helptext-input::placeholder {
-    color: var(--text-ph);
-    font-style: italic;
-}
-
-/* Badge dot on field when help text exists */
-.lfield.has-helptext .lfield-name::after {
-    content: '';
-    display: inline-block;
-    width: 5px;
-    height: 5px;
-    background: var(--orange);
-    border-radius: 50%;
-    margin-left: 4px;
-    vertical-align: middle;
-    position: relative;
-    top: -1px;
-}
-
-/* ═══════════════════════════════════════════════════════
    VALIDITY MODAL — Error message input section
    ─────────────────────────────────────────────────────── */
 
@@ -1620,12 +1551,171 @@ body {
     box-shadow: 0 0 0 3px rgba(253, 171, 61, 0.15) !important;
 }
 
-/* ─── lfield layout correction: column flex so helptext row stacks below ── */
-.lfield {
-    flex-direction: column;
-    align-items: stretch;
-    gap: 0;
+/* ═══════════════════════════════════════════════════════
+   FIELD CONFIG GEAR BUTTON (lfield-config)
+   ─────────────────────────────────────────────────────── */
+
+.lfield-config {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    position: relative;
+    width: 26px;
+    height: 26px;
+    border: none;
+    border-radius: var(--r-sm);
+    background: transparent;
+    cursor: pointer;
+    color: var(--text-ph);
+    transition: background var(--t), color var(--t);
+    flex-shrink: 0;
+    padding: 0;
+    pointer-events: auto;
+    -webkit-user-drag: none;
+    user-select: none;
 }
-.lfield-main-row {
-    min-height: 30px;
+.lfield-config:hover          { background: #f0f4ff; color: var(--blue); }
+.lfield-config.active         { background: #e6f0ff; color: var(--blue); }
+.lfield-config.active:hover   { background: #cce0ff; color: var(--blue-dark); }
+
+/* Small amber dot when config has been set */
+.lfield-config-badge {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 6px;
+    height: 6px;
+    background: var(--orange);
+    border-radius: 50%;
+    border: 1.5px solid #fff;
+    pointer-events: none;
+}
+
+/* Subtle left-accent when field has config saved */
+.lfield.has-config {
+    border-left: 3px solid var(--orange);
+}
+
+/* ═══════════════════════════════════════════════════════
+   FIELD CONFIG MODAL  (fcm-*)
+   ─────────────────────────────────────────────────────── */
+
+.fcm-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(32, 33, 36, 0.45);
+    backdrop-filter: blur(2px);
+    z-index: 9200;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px;
+    animation: srm-fade-in 0.12s ease;
+}
+
+.fcm-modal {
+    background: #fff;
+    border-radius: 12px;
+    box-shadow:
+        0 0 0 1px rgba(0,0,0,0.06),
+        0 8px 28px rgba(0,0,0,0.14),
+        0 2px 6px rgba(0,0,0,0.06);
+    width: 100%;
+    max-width: 420px;
+    display: flex;
+    flex-direction: column;
+    animation: srm-slide-up 0.16s ease;
+    overflow: hidden;
+}
+
+.fcm-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 18px 14px;
+    border-bottom: 1px solid #eaecf0;
+    flex-shrink: 0;
+    background: linear-gradient(135deg, #f8f9ff 0%, #fff 100%);
+}
+.fcm-header-left  { display: flex; align-items: center; gap: 11px; }
+.fcm-header-icon  {
+    width: 34px; height: 34px;
+    background: #e6f0ff; border-radius: 8px;
+    display: flex; align-items: center; justify-content: center;
+    color: var(--blue); flex-shrink: 0;
+}
+.fcm-title        { font-size: 15px; font-weight: 700; color: #1a1b23; margin: 0 0 3px; line-height: 1.2; }
+.fcm-field-pill   {
+    display: inline-flex; align-items: center; gap: 5px;
+    padding: 2px 8px; background: #f0f4ff; border: 1px solid #cce0ff;
+    border-radius: 20px; font-size: 11px; font-weight: 500; color: #323338;
+}
+.fcm-field-dot    { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+.fcm-field-type   { font-size: 10px; color: var(--text-2); background: rgba(0,0,0,0.05); border-radius: 8px; padding: 1px 5px; }
+.fcm-close        {
+    width: 30px; height: 30px; border: none; border-radius: 6px;
+    background: transparent; cursor: pointer; color: #676879;
+    display: flex; align-items: center; justify-content: center;
+    transition: background 0.15s, color 0.15s;
+}
+.fcm-close:hover  { background: #fde8ec; color: #e44258; }
+
+.fcm-body {
+    padding: 18px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+
+.fcm-field-group  { display: flex; flex-direction: column; gap: 5px; }
+
+.fcm-label {
+    display: flex;
+    align-items: baseline;
+    gap: 6px;
+    font-size: 12px;
+    font-weight: 600;
+    color: #323338;
+}
+.fcm-label-icon   { font-size: 13px; line-height: 1; }
+.fcm-label-hint   { font-size: 11px; font-weight: 400; color: var(--text-2); margin-left: auto; }
+
+.fcm-input {
+    width: 100%;
+    padding: 7px 10px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    font-size: 13px;
+    color: var(--text);
+    background: #fff;
+    outline: none;
+    font-family: var(--font);
+    transition: border-color 0.15s, box-shadow 0.15s;
+}
+.fcm-input:focus  { border-color: var(--blue); box-shadow: 0 0 0 2px rgba(0,115,234,0.12); }
+.fcm-input::placeholder { color: var(--text-ph); }
+
+.fcm-input-sm     { width: 100px; }
+
+.fcm-error {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 8px 11px;
+    background: #fff4f6;
+    border: 1px solid #fac0cb;
+    border-radius: 6px;
+    font-size: 12px;
+    color: #b82020;
+}
+
+.fcm-footer {
+    display: flex;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 8px;
+    padding: 12px 18px;
+    border-top: 1px solid #eaecf0;
+    background: #f8f9fc;
+    flex-shrink: 0;
 }
