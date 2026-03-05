@@ -1,15 +1,6 @@
 /* ═══════════════════════════════════════════════════════
    PAGE LAYOUT BUILDER — App.css (MERGED)
    monday.com native design language
-
-   INCLUDES:
-   - Original Page Layout Builder styles (plb-*)
-   - Related Lists / Child Boards styles (rl-*)
-   - Phone input styles (phone-*)
-   - File upload styles (file-*)
-   - Timeline & Doc field styles
-
-   NO CONFLICTS: All new styles are properly namespaced
 ═══════════════════════════════════════════════════════ */
 
 :root {
