@@ -1,11 +1,5 @@
 import mondaySdk from "monday-sdk-js";
-import {
-    PAGELAYOUTSECTION_BOARDID,
-    PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID,
-    PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER,
-    PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS,
-    PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS,
-} from "../config_constants";
+import { PAGELAYOUTSECTION_BOARDID, PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID, PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS } from "../config_constants";
 import { getBoardColumns } from "./boardMetadata";
 
 const PLS_BOARDID = PAGELAYOUTSECTION_BOARDID;
@@ -26,17 +20,17 @@ export async function getPageLayoutSectionRecords(targetBoardId) {
     const find = (title) => res.columns.find((c) => c.title === title);
     const boardIdCol = find(PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID);
     const fieldsCol = find(PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS); // NEW
-    const orderCol = find(PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER);
+    //const orderCol = find(PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER);
 
-    if (!boardIdCol || !fieldsCol || !orderCol)
+    if (!boardIdCol || !fieldsCol)
         throw new Error(
             `Missing required columns in PageLayoutSections board.\n` +
-                `Expected: "${PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID}", "${PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS}", "${PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONORDER}".\n` +
+                `Expected: "${PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID}", "${PAGELAYOUTSECTION_COLUMN_TITLE_FIELDS}", .\n` +
                 `Found: ${res.columns.map((c) => `"${c.title}"`).join(", ")}`,
         );
     const boardIdColumnId = boardIdCol.id;
-    const fieldsColId = fieldsCol.id; // NEW — replaces sectionsColId for writes
-    const orderColId = orderCol.id;
+    //const fieldsColId = fieldsCol.id;
+    //const orderColId = orderCol.id;
     //Query Page Layout Section Board's records
     const targetStr = String(targetBoardId).trim();
 
@@ -94,9 +88,9 @@ export async function getPageLayoutSectionRecords(targetBoardId) {
         }
         return isMatch;
     });
-    const sortedRecords = sortPageLayoutSectionRecords(matched, orderColId);
-    console.log("PLS board record queries Matched records ", sortedRecords);
-    return sortedRecords;
+    //const sortedRecords = sortPageLayoutSectionRecords(matched, orderColId);
+    //console.log("PLS board record queries Matched records ", sortedRecords);
+    return matched;
 }
 
 /**
@@ -154,49 +148,6 @@ export function parseFieldsArrayJSON(cv) {
     } catch (ex) {
         return [];
     }
-    /*
-    // Strategy 1: cv.text is the raw stored string — try it first
-    if (cv.text && cv.text.trim().startsWith("[")) {
-        console.log('1. In parseFieldsArrayJSON method CV text ', cv.text);
-        try {
-            const parsed = JSON.parse(cv.text);
-            console.log('In parseFieldsArrayJSON method CV text parsed ', parsed);
-            console.log('In parseFieldsArrayJSON method CV text parsed text ', parsed.text);
-            const parsedFields = JSON.parse(parsed.text);
-            console.log('Parsed fields ', parsedFields);
-            if (Array.isArray(parsed)) return parsed;
-        } catch (_) {
-            console.log('1. exception ', _);
-        }
-    }
-
-    // Strategy 2: cv.value is the monday wrapper { text: "[...]", changed_at: "..." }
-    if (cv.value) {
-        console.log('2. In parseFieldsArrayJSON method CV text ', cv.value);
-        try {
-            const outer = JSON.parse(cv.value);
-            console.log('2. In parseFieldsArrayJSON method CV text ', outer);
-            if (outer && typeof outer.text === "string" && outer.text.trim().startsWith("[")) {
-                const inner = JSON.parse(outer.text);
-                if (Array.isArray(inner)) return inner;
-            }
-        } catch (_) {
-            console.log('2. exception ', _);
-        }
-
-        // Strategy 3: cv.value is itself the array string (no wrapper)
-        try {
-
-            const direct = JSON.parse(cv.value);
-            console.log('3. In parseFieldsArrayJSON method CV text ', direct);
-            if (Array.isArray(direct)) return direct;
-        } catch (_) {
-            console.log('4. exception ', _);
-        }
-
-    }
-    */
-    return null;
 }
 
 /**
