@@ -7,6 +7,7 @@ import {
     PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID,
     PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS,
     PAGELAYOUT_COL_TITLE_CHILD_BOARDS,
+    PAGELAYOUTSECTION_COLUMN_TITLE_VALIDATION_RULES,
 } from "./config_constants";
 import { getPageLayoutSectionRecords } from "./hooks/pageLayoutBuilderUtils";
 import { getOperatorsForType, operatorNeedsValue } from "./fieldVisibilityConfig";
