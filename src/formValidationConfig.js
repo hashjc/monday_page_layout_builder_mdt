@@ -57,26 +57,24 @@ export const ARITHMETIC_OPS = [
 
 // ─── Comparison operators (middle of each row) ───────────────────────────────
 export const COMPARISON_OPS = [
-    { id: "==",          label: "==",          numeric: true,  string: true  },
-    { id: "!=",          label: "!=",      numeric: true,  string: true  },
-    { id: ">",           label: ">",    numeric: true,  string: false },
-    { id: ">=",          label: "≥",               numeric: true,  string: false },
-    { id: "<",           label: "<",       numeric: true,  string: false },
-    { id: "<=",          label: "≤",               numeric: true,  string: false },
-    { id: "contains",    label: "contains",        numeric: false, string: true  },
-    { id: "not_contains",label: "not contains",    numeric: false, string: true  },
-    { id: "starts_with", label: "starts with",     numeric: false, string: true  },
-    { id: "ends_with",   label: "ends with",       numeric: false, string: true  },
-    //{ id: "is_empty",    label: "is blank",        numeric: true,  string: true,  noValue: true },
-    //{ id: "is_not_empty",label: "is not blank",    numeric: true,  string: true,  noValue: true },
+    { id: "==", label: "==", numeric: true, string: true },
+    { id: "!=", label: "!=", numeric: true, string: true },
+    { id: ">", label: ">", numeric: true, string: false },
+    { id: ">=", label: "≥", numeric: true, string: false },
+    { id: "<", label: "<", numeric: true, string: false },
+    { id: "<=", label: "≤", numeric: true, string: false },
+    { id: "contains", label: "contains", numeric: false, string: true },
+    { id: "not_contains", label: "not contains", numeric: false, string: true },
+    { id: "starts_with", label: "starts with", numeric: false, string: true },
+    { id: "ends_with", label: "ends with", numeric: false, string: true },
 ];
 
 // Numeric column types — used to decide which operators to show
 export const NUMERIC_COL_TYPES = new Set(["numbers", "rating"]);
 // Date column types
-export const DATE_COL_TYPES    = new Set(["date", "timeline"]);
+export const DATE_COL_TYPES = new Set(["date", "timeline"]);
 // String column types
-export const STRING_COL_TYPES  = new Set(["text", "long_text", "email", "phone", "link", "name"]);
+export const STRING_COL_TYPES = new Set(["text", "long_text", "email", "phone", "link", "name"]);
 
 /**
  * Returns the subset of comparison operators applicable to a column type.
@@ -89,28 +87,28 @@ export function getComparisonOpsForType(colType) {
     if (STRING_COL_TYPES.has(colType)) {
         return COMPARISON_OPS.filter((o) => o.string);
     }
-    // status / dropdown / checkbox / people / board_relation — equals/not_equals + blank checks
+    // status / dropdown / checkbox / people / board_relation — == and != only
     return COMPARISON_OPS.filter((o) => ["==", "!="].includes(o.id));
 }
 
 /**
- * Returns true if the comparison operator requires a value input.
- * is_empty / is_not_empty do not.
+ * All operators now require a value. Leave the value blank to compare against
+ * an empty field: "==" + blank → field must be empty, "!=" + blank → must not be empty.
  */
 export function comparisonOpNeedsValue(opId) {
-    return !["is_empty", "is_not_empty"].includes(opId);
+    return true;
 }
 
 // ─── Date literals ────────────────────────────────────────────────────────────
 // These appear as special options in the RHS value dropdown for date fields.
 export const DATE_LITERALS = [
-    { id: "TODAY",          label: "Today" },
-    { id: "TOMORROW",       label: "Tomorrow" },
-    { id: "YESTERDAY",      label: "Yesterday" },
-    { id: "START_OF_WEEK",  label: "Start of week" },
-    { id: "END_OF_WEEK",    label: "End of week" },
+    { id: "TODAY", label: "Today" },
+    { id: "TOMORROW", label: "Tomorrow" },
+    { id: "YESTERDAY", label: "Yesterday" },
+    { id: "START_OF_WEEK", label: "Start of week" },
+    { id: "END_OF_WEEK", label: "End of week" },
     { id: "START_OF_MONTH", label: "Start of month" },
-    { id: "END_OF_MONTH",   label: "End of month" },
+    { id: "END_OF_MONTH", label: "End of month" },
 ];
 
 /**
@@ -124,14 +122,40 @@ export function resolveDateLiteral(literal) {
     const iso = (d) => d.toISOString().slice(0, 10);
 
     switch (literal) {
-        case "TODAY":          return iso(today);
-        case "TOMORROW":       { const d = new Date(today); d.setDate(d.getDate() + 1); return iso(d); }
-        case "YESTERDAY":      { const d = new Date(today); d.setDate(d.getDate() - 1); return iso(d); }
-        case "START_OF_WEEK":  { const d = new Date(today); d.setDate(d.getDate() - d.getDay()); return iso(d); }
-        case "END_OF_WEEK":    { const d = new Date(today); d.setDate(d.getDate() + (6 - d.getDay())); return iso(d); }
-        case "START_OF_MONTH": { const d = new Date(today); d.setDate(1); return iso(d); }
-        case "END_OF_MONTH":   { const d = new Date(today); d.setMonth(d.getMonth() + 1, 0); return iso(d); }
-        default:               return literal;
+        case "TODAY":
+            return iso(today);
+        case "TOMORROW": {
+            const d = new Date(today);
+            d.setDate(d.getDate() + 1);
+            return iso(d);
+        }
+        case "YESTERDAY": {
+            const d = new Date(today);
+            d.setDate(d.getDate() - 1);
+            return iso(d);
+        }
+        case "START_OF_WEEK": {
+            const d = new Date(today);
+            d.setDate(d.getDate() - d.getDay());
+            return iso(d);
+        }
+        case "END_OF_WEEK": {
+            const d = new Date(today);
+            d.setDate(d.getDate() + (6 - d.getDay()));
+            return iso(d);
+        }
+        case "START_OF_MONTH": {
+            const d = new Date(today);
+            d.setDate(1);
+            return iso(d);
+        }
+        case "END_OF_MONTH": {
+            const d = new Date(today);
+            d.setMonth(d.getMonth() + 1, 0);
+            return iso(d);
+        }
+        default:
+            return literal;
     }
 }
 
@@ -154,9 +178,8 @@ export function simpleRowToExprFragment(row, columnsMap) {
         lhs = `({${lhsField}} ${lhsOp} {${lhsField2}})`;
     }
 
-    // No-value operators
-    if (operator === "is_empty")     return `{${lhsField}} == null`;
-    if (operator === "is_not_empty") return `{${lhsField}} != null`;
+    // No-value operators removed — blank value means compare against null/empty
+    // (handled downstream by the evaluator's null-check logic)
 
     // RHS
     let rhs;
@@ -167,10 +190,10 @@ export function simpleRowToExprFragment(row, columnsMap) {
         if (STRING_COL_TYPES.has(colType)) {
             // String ops need special handling — expression will use js string methods
             // We encode as a special marker; the evaluator handles these
-            if (operator === "contains")     return `__contains({${lhsField}}, "${rhsValue}")`;
+            if (operator === "contains") return `__contains({${lhsField}}, "${rhsValue}")`;
             if (operator === "not_contains") return `__not_contains({${lhsField}}, "${rhsValue}")`;
-            if (operator === "starts_with")  return `__starts_with({${lhsField}}, "${rhsValue}")`;
-            if (operator === "ends_with")    return `__ends_with({${lhsField}}, "${rhsValue}")`;
+            if (operator === "starts_with") return `__starts_with({${lhsField}}, "${rhsValue}")`;
+            if (operator === "ends_with") return `__ends_with({${lhsField}}, "${rhsValue}")`;
         }
         rhs = isNaN(rhsValue) || rhsValue === "" ? `"${rhsValue}"` : rhsValue;
     }
@@ -194,10 +217,13 @@ export function buildExpressionFromSimpleRows(rows, criteriaExpr, columnsMap) {
     if (fragments.length === 1) return fragments[0];
 
     // Replace condition numbers with the actual fragment
-    return criteriaExpr.replace(/\b(\d+)\b/g, (_, n) => {
-        const idx = parseInt(n, 10) - 1;
-        return idx >= 0 && idx < fragments.length ? `(${fragments[idx]})` : "false";
-    }).replace(/\bAND\b/gi, "&&").replace(/\bOR\b/gi, "||");
+    return criteriaExpr
+        .replace(/\b(\d+)\b/g, (_, n) => {
+            const idx = parseInt(n, 10) - 1;
+            return idx >= 0 && idx < fragments.length ? `(${fragments[idx]})` : "false";
+        })
+        .replace(/\bAND\b/gi, "&&")
+        .replace(/\bOR\b/gi, "||");
 }
 
 // ─── Formula expression evaluator ────────────────────────────────────────────
@@ -215,8 +241,8 @@ export function resolveExpression(expression, formValues, columnsMap) {
     const scope = {};
 
     const resolvedExpr = expression.replace(/\{([^}]+)\}/g, (_, fieldId) => {
-        const alias   = `_f${fieldId.replace(/[^a-z0-9]/gi, "_")}`;
-        const raw     = formValues[fieldId];
+        const alias = `_f${fieldId.replace(/[^a-z0-9]/gi, "_")}`;
+        const raw = formValues[fieldId];
         const colType = columnsMap[fieldId]?.type || "text";
 
         let val;
@@ -240,37 +266,22 @@ export function resolveExpression(expression, formValues, columnsMap) {
 
 /**
  * Evaluate a board-level validation rule against current form values.
+ * Expression returning true = INVALID (Salesforce-style error condition).
  *
- * Returns null if the rule passes or doesn't apply (trigger condition not met).
- * Returns the rule's error string if it fails.
+ * Returns the rule's error string if the expression is true (invalid).
+ * Returns null if the expression is false (valid / passes).
+ *
+ * All rules run unconditionally — conditional logic belongs in the expression.
  *
  * @param {Object} rule        — full rule object from JSON
  * @param {Object} formValues  — { [columnId]: rawValue }
  * @param {Object} columnsMap  — { [columnId]: { type } }
- * @returns {null | string}    null = pass, string = error message
+ * @returns {null | string}    null = passes, string = error message
  */
 export function evaluateValidationRule(rule, formValues, columnsMap) {
-    // Check trigger condition
-    if (rule.trigger === "conditional" && rule.condition) {
-        const { fieldId, operator, value } = rule.condition;
-        const raw     = formValues[fieldId];
-        const colType = columnsMap[fieldId]?.type || "text";
-        const actual  = raw === null || raw === undefined ? "" : String(raw);
-        const comp    = String(value ?? "").toLowerCase();
-        const actLow  = actual.toLowerCase();
-
-        let condMet = false;
-        switch (operator) {
-            case "==":  condMet = actLow === comp; break;
-            case "!=":  condMet = actLow !== comp; break;
-            //case "is_empty":     condMet = actual === ""; break;
-            //case "is_not_empty": condMet = actual !== ""; break;
-            case "contains":     condMet = actLow.includes(comp); break;
-            default:             condMet = actLow === comp;
-        }
-
-        if (!condMet) return null; // condition not met — rule doesn't apply
-    }
+    // All rules run unconditionally at submit time.
+    // Conditional logic should be embedded in the expression itself
+    // (e.g. {status} == "Active" && {amount} == null).
 
     // Evaluate expression
     const expression = rule.expression || "";
@@ -281,13 +292,12 @@ export function evaluateValidationRule(rule, formValues, columnsMap) {
 
         // Handle string helper functions (__contains, __starts_with, etc.)
         let jsExpr = resolvedExpr
-            .replace(/__contains\(([^,]+),\s*"([^"]*)"\)/g,     (_, v, s) => `(${v} != null && String(${v}).toLowerCase().includes("${s.toLowerCase()}"))`  )
-            .replace(/__not_contains\(([^,]+),\s*"([^"]*)"\)/g,  (_, v, s) => `(${v} == null || !String(${v}).toLowerCase().includes("${s.toLowerCase()}"))`  )
-            .replace(/__starts_with\(([^,]+),\s*"([^"]*)"\)/g,   (_, v, s) => `(${v} != null && String(${v}).toLowerCase().startsWith("${s.toLowerCase()}"))`  )
-            .replace(/__ends_with\(([^,]+),\s*"([^"]*)"\)/g,     (_, v, s) => `(${v} != null && String(${v}).toLowerCase().endsWith("${s.toLowerCase()}"))`    )
+            .replace(/__contains\(([^,]+),\s*"([^"]*)"\)/g, (_, v, s) => `(${v} != null && String(${v}).toLowerCase().includes("${s.toLowerCase()}"))`)
+            .replace(/__not_contains\(([^,]+),\s*"([^"]*)"\)/g, (_, v, s) => `(${v} == null || !String(${v}).toLowerCase().includes("${s.toLowerCase()}"))`)
+            .replace(/__starts_with\(([^,]+),\s*"([^"]*)"\)/g, (_, v, s) => `(${v} != null && String(${v}).toLowerCase().startsWith("${s.toLowerCase()}"))`)
+            .replace(/__ends_with\(([^,]+),\s*"([^"]*)"\)/g, (_, v, s) => `(${v} != null && String(${v}).toLowerCase().endsWith("${s.toLowerCase()}"))`)
             // Resolve date literals
-            .replace(/"(TODAY|TOMORROW|YESTERDAY|START_OF_WEEK|END_OF_WEEK|START_OF_MONTH|END_OF_MONTH)"/g,
-                (_, lit) => `"${resolveDateLiteral(lit)}"`);
+            .replace(/"(TODAY|TOMORROW|YESTERDAY|START_OF_WEEK|END_OF_WEEK|START_OF_MONTH|END_OF_MONTH)"/g, (_, lit) => `"${resolveDateLiteral(lit)}"`);
 
         // Build scope-injection prefix
         const scopeEntries = Object.entries(scope)
@@ -296,7 +306,8 @@ export function evaluateValidationRule(rule, formValues, columnsMap) {
 
         // eslint-disable-next-line no-new-func
         const result = new Function(`${scopeEntries} return Boolean(${jsExpr});`)();
-        return result ? null : (rule.error || "Validation failed.");
+        // Expression true = INVALID (Salesforce-style error condition formula)
+        return result ? rule.error || "Validation failed." : null;
     } catch (err) {
         console.warn("[formValidation] Expression error:", err, "in rule:", rule.id);
         return null; // Don't block submission on expression errors

@@ -43,9 +43,6 @@
 // ─── Re-export shared operator infrastructure ─────────────────────────────────
 // The full ALL_OPERATORS list and type sets live in fieldVisibilityConfig.js.
 // We re-export what the modal UI needs so it only has to import from one place.
-
-import { ALL_OPERATORS } from "./fieldVisibilityConfig";
-
 export {
     operatorNeedsValue,
     getValueInputType,
@@ -84,18 +81,15 @@ const OP = (ids) => ALL_OPERATORS.filter((o) => ids.includes(o.id));
  * Returns the list of applicable operators for a given column type
  * in the context of VALIDITY rules.
  *
- * No is_empty / is_not_empty — users express emptiness by combining
- * equals/not_equals with a blank value (null). This keeps the operator
- * list simple and the JSON shape consistent.
- *
- *   e.g. "not_equals + null" → field must not be empty
- *        "equals + null"     → field must be empty
+ * Leave the value input blank to compare against an empty field:
+ *   "==" + blank  → field must be empty
+ *   "!=" + blank  → field must not be empty
  *
  * Type-specific notes:
  *   • numbers / date  — comparison operators only
- *   • email           — equals/not_equals + ends_with (domain enforcement)
- *   • phone           — equals/not_equals only
- *   • link            — starts_with + contains + equals/not_equals
+ *   • email           — == / != + ends_with (domain enforcement)
+ *   • phone           — == / != only
+ *   • link            — starts_with + contains + == / !=
  *   • text/long_text  — full string set
  */
 export function getValidityOperatorsForType(colType) {
@@ -192,18 +186,16 @@ export function evaluateValidityCondition(condition, fieldValues, columnsMap) {
 
     const fieldIsEmpty = actual === null || actual === undefined || actual === "";
 
-    // When ruleValue is null/undefined/"", the user means "blank".
-    // equals+blank → field must be empty; not_equals+blank → field must not be empty.
+    // Blank rule value — user is comparing against an empty field.
+    // "==" + blank → field must be empty; "!=" + blank → field must not be empty.
+    // Any other operator + blank is treated as "!=" (field must not be empty).
     const ruleIsBlank = ruleValue === null || ruleValue === undefined || ruleValue === "";
     if (ruleIsBlank) {
-        if (operator === "==")     return fieldIsEmpty;
-        if (operator === "!=") return !fieldIsEmpty;
-        // For operators that don't make sense with blank (>, contains, etc.),
-        // treat blank rule value as not_equals (must not be empty).
+        if (operator === "==") return fieldIsEmpty;
         return !fieldIsEmpty;
     }
 
-    // Non-blank rule value: if the field is empty it can't satisfy any comparison
+    // Non-blank rule value: empty field fails all comparisons
     if (fieldIsEmpty) return false;
 
     // Numeric / date comparisons
@@ -212,12 +204,12 @@ export function evaluateValidityCondition(condition, fieldValues, columnsMap) {
         const comp = colType === "numbers" ? parseFloat(ruleValue) : ruleValue;
         if (colType === "numbers" && (isNaN(num) || isNaN(comp))) return false;
         switch (operator) {
-            case "equals":     return num === comp || String(num) === String(comp);
-            case "not_equals": return num !== comp && String(num) !== String(comp);
-            case ">":          return num >   comp;
-            case ">=":         return num >=  comp;
-            case "<":          return num <   comp;
-            case "<=":         return num <=  comp;
+            case "==": return num === comp || String(num) === String(comp);
+            case "!=": return num !== comp && String(num) !== String(comp);
+            case ">":  return num >   comp;
+            case ">=": return num >=  comp;
+            case "<":  return num <   comp;
+            case "<=": return num <=  comp;
         }
     }
 
@@ -225,8 +217,8 @@ export function evaluateValidityCondition(condition, fieldValues, columnsMap) {
     const str  = String(actual).toLowerCase();
     const comp = String(ruleValue).toLowerCase();
     switch (operator) {
-        case "==":       return str === comp;
-        case "not_equals":   return str !== comp;
+        case "==":           return str === comp;
+        case "!=":           return str !== comp;
         case "contains":     return str.includes(comp);
         case "not_contains": return !str.includes(comp);
         case "starts_with":  return str.startsWith(comp);
