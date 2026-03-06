@@ -60,18 +60,18 @@ export const OTHER_TYPES = new Set([
 
 /** All available operators with human-readable labels */
 export const ALL_OPERATORS = [
-    { id: "is_empty",     label: "is empty",     needsValue: false },
-    { id: "is_not_empty", label: "is not empty", needsValue: false },
-    { id: "equals",       label: "equals",       needsValue: true  },
-    { id: "not_equals",   label: "not equals",   needsValue: true  },
-    { id: "contains",     label: "contains",     needsValue: true  },
-    { id: "not_contains", label: "not contains", needsValue: true  },
-    { id: "starts_with",  label: "starts with",  needsValue: true  },
-    { id: "ends_with",    label: "ends with",    needsValue: true  },
-    { id: ">",            label: ">",            needsValue: true  },
-    { id: ">=",           label: ">=",           needsValue: true  },
-    { id: "<",            label: "<",            needsValue: true  },
-    { id: "<=",           label: "<=",           needsValue: true  },
+    //{ id: "is_empty",     label: "is empty",     needsValue: false },
+    //{ id: "is_not_empty", label: "is not empty", needsValue: false },
+    { id: "==", label: "==", needsValue: true },
+    { id: "!=", label: "!=", needsValue: true },
+    { id: "contains", label: "contains", needsValue: true },
+    { id: "not_contains", label: "not contains", needsValue: true },
+    { id: "starts_with", label: "starts with", needsValue: true },
+    { id: "ends_with", label: "ends with", needsValue: true },
+    { id: ">", label: ">", needsValue: true },
+    { id: ">=", label: ">=", needsValue: true },
+    { id: "<", label: "<", needsValue: true },
+    { id: "<=", label: "<=", needsValue: true },
 ];
 
 const OP = (ids) => ALL_OPERATORS.filter((o) => ids.includes(o.id));
@@ -83,20 +83,19 @@ const OP = (ids) => ALL_OPERATORS.filter((o) => ids.includes(o.id));
  */
 export function getOperatorsForType(colType) {
     if (NUMERIC_TYPES.has(colType)) {
-        return OP(["is_empty", "is_not_empty", "equals", "not_equals", ">", ">=", "<", "<="]);
+        return OP(["==", "!=", ">", ">=", "<", "<="]);
     }
     if (STRING_TYPES.has(colType)) {
-        return OP(["is_empty", "is_not_empty", "equals", "not_equals",
-                   "contains", "not_contains", "starts_with", "ends_with"]);
+        return OP(["==", "!=", "contains", "not_contains", "starts_with", "ends_with"]);
     }
     if (BOOLEAN_TYPES.has(colType)) {
-        return OP(["is_empty", "is_not_empty", "equals"]);
+        return OP(["==", "!="]);
     }
     if (RELATION_TYPES.has(colType)) {
-        return OP(["is_empty", "is_not_empty", "contains", "not_contains"]);
+        return OP(["==", "!=", "contains", "not_contains"]);
     }
     // Fallback: only empty checks
-    return OP(["is_empty", "is_not_empty"]);
+    return OP(["==", "!="]);
 }
 
 /**
@@ -134,47 +133,59 @@ export function getValueInputType(colType) {
 export function evaluateCondition(condition, fieldValues, columnsMap) {
     const { operator, fieldId, value } = condition;
     const rawValue = fieldValues[fieldId];
-    const colType  = columnsMap[fieldId]?.type || "text";
+    const colType = columnsMap[fieldId]?.type || "text";
 
     // Empty / not-empty checks
-    const isEmpty = rawValue === null || rawValue === undefined || rawValue === "";
-    if (operator === "is_empty")     return isEmpty;
-    if (operator === "is_not_empty") return !isEmpty;
-    if (isEmpty) return false; // can't compare against empty for other ops
+    //const isEmpty = rawValue === null || rawValue === undefined || rawValue === "";
+    //if (operator === "is_empty")     return isEmpty;
+    //if (operator === "is_not_empty") return !isEmpty;
+    //if (isEmpty) return false; // can't compare against empty for other ops
 
     // Numeric comparisons
     if (NUMERIC_TYPES.has(colType)) {
-        const num  = parseFloat(rawValue);
+        const num = parseFloat(rawValue);
         const comp = parseFloat(value);
         if (isNaN(num) || isNaN(comp)) return false;
         switch (operator) {
-            case "equals":     return num === comp;
-            case "not_equals": return num !== comp;
-            case ">":          return num >   comp;
-            case ">=":         return num >=  comp;
-            case "<":          return num <   comp;
-            case "<=":         return num <=  comp;
+            case "==":
+                return num === comp;
+            case "!=":
+                return num !== comp;
+            case ">":
+                return num > comp;
+            case ">=":
+                return num >= comp;
+            case "<":
+                return num < comp;
+            case "<=":
+                return num <= comp;
         }
     }
 
     // Boolean comparison
     if (BOOLEAN_TYPES.has(colType)) {
-        const boolVal  = rawValue === true  || rawValue === "true"  || rawValue === 1;
-        const boolComp = value    === true  || value    === "true"  || value    === "true";
-        if (operator === "equals")     return boolVal === boolComp;
-        if (operator === "not_equals") return boolVal !== boolComp;
+        const boolVal = rawValue === true || rawValue === "true" || rawValue === 1;
+        const boolComp = value === true || value === "true" || value === "true";
+        if (operator === "==") return boolVal === boolComp;
+        if (operator === "!=") return boolVal !== boolComp;
     }
 
     // String comparisons
-    const str  = String(rawValue).toLowerCase();
+    const str = String(rawValue).toLowerCase();
     const comp = String(value).toLowerCase();
     switch (operator) {
-        case "equals":       return str === comp;
-        case "not_equals":   return str !== comp;
-        case "contains":     return str.includes(comp);
-        case "not_contains": return !str.includes(comp);
-        case "starts_with":  return str.startsWith(comp);
-        case "ends_with":    return str.endsWith(comp);
+        case "==":
+            return str === comp;
+        case "!=":
+            return str !== comp;
+        case "contains":
+            return str.includes(comp);
+        case "not_contains":
+            return !str.includes(comp);
+        case "starts_with":
+            return str.startsWith(comp);
+        case "ends_with":
+            return str.endsWith(comp);
     }
 
     return false;

@@ -12,10 +12,13 @@ import {
 import { getPageLayoutSectionRecords } from "./hooks/pageLayoutBuilderUtils";
 import { getOperatorsForType, operatorNeedsValue } from "./fieldVisibilityConfig";
 import {
-    getValidityOperatorsForType,
-    getValidityValueInputType,
-    supportsValidityRules,
-} from "./fieldValidityConfig";
+    makeRuleId, makeRowId,
+    ARITHMETIC_OPS, COMPARISON_OPS,
+    NUMERIC_COL_TYPES, DATE_COL_TYPES, STRING_COL_TYPES,
+    getComparisonOpsForType, comparisonOpNeedsValue,
+    buildExpressionFromSimpleRows,
+    validateExpression,
+} from "./formValidationConfig";
 
 import "./App.css";
 
@@ -25,6 +28,7 @@ const monday = mondaySdk();
 const PLS_COL_TITLE_BOARDID      = PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID;
 const PLS_COL_TITLE_SECTIONS     = PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS;
 const PLS_COL_TITLE_CHILD_BOARDS = PAGELAYOUT_COL_TITLE_CHILD_BOARDS;
+const PLS_COL_TITLE_VAL_RULES    = PAGELAYOUTSECTION_COLUMN_TITLE_VALIDATION_RULES;
 
 // ─── Section rules UI constants ────────────────────────────────────────────────
 const USER_PROFILE_FIELDS = [
@@ -142,25 +146,7 @@ const Icon = {
             <path d="M2 2L12 12M12 2L2 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
     ),
-    // ── NEW: CheckShield — distinct coloured icon for validity rules ──────────
-    // Rendered in green (#00c875) via CSS class lfield-validity[.active]
-    CheckShield: () => (
-        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path
-                d="M7 1.5L2 3.5v3.75C2 10.1 4.24 12.6 7 13.5c2.76-.9 5-3.4 5-6.25V3.5L7 1.5z"
-                stroke="currentColor"
-                strokeWidth="1.3"
-                strokeLinejoin="round"
-            />
-            <path
-                d="M4.5 7l1.75 1.75L9.5 5.5"
-                stroke="currentColor"
-                strokeWidth="1.4"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-        </svg>
-    ),
+
 };
 
 // ─── Column type metadata ─────────────────────────────────────────────────────
@@ -182,7 +168,7 @@ const COL_TYPE_META = {
     doc:            { color: "#6c8ebf", label: "Doc" },
     link:           { color: "#0073ea", label: "Link" },
     rating:         { color: "#fdab3d", label: "Rating" },
-    files:          { color: "#6c8ebf", label: "Files" },
+    file:          { color: "#6c8ebf", label: "Files" },
     tags:           { color: "#333",    label: "Tags" },
     timeline:       { color: "#0073ea", label: "Timeline" },
     dependency:     { color: "#7e3b8a", label: "Dependency" },
@@ -207,7 +193,7 @@ const MAX_VALUES_TYPES = new Set(["board_relation", "people"]);
 const MAX_FILES_TYPES  = new Set(["file"]);
 
 /** Convert a section's rows + requiredSet → flat fields array (for JSON storage) */
-const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldValRules = {}, fieldConfigs = {}) =>
+const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldConfigs = {}) =>
     rows.flatMap((row) =>
         row.filter(Boolean).map((col) => {
             const cfg = fieldConfigs[col.id] || {};
@@ -237,15 +223,6 @@ const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldValRules = {},
                     criteria: vr.criteria || "ALL",
                 };
             }
-            // Embed field-level validity rules if any defined
-            const vl = fieldValRules[col.id];
-            if (vl && Array.isArray(vl.conditions) && vl.conditions.length > 0) {
-                field.validityRules = {
-                    conditions: vl.conditions,
-                    criteria: vl.criteria || "ALL",
-                    ...(vl.error ? { error: vl.error } : {}),
-                };
-            }
             return field;
         }),
     );
@@ -266,9 +243,9 @@ const fieldsToRows = (fields, columnsMap) => {
 // JSON SERIALISATION / DESERIALISATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-function serialiseSectionsJSON(sections, requiredFields, sectionRules, fieldVisRules = {}, fieldValRules = {}, fieldConfigs = {}) {
+function serialiseSectionsJSON(sections, requiredFields, sectionRules, fieldVisRules = {}, fieldConfigs = {}) {
     const payload = sections.map((sec, idx) => {
-        const fields = rowsToFields(sec.rows, requiredFields, fieldVisRules, fieldValRules, fieldConfigs);
+        const fields = rowsToFields(sec.rows, requiredFields, fieldVisRules, fieldConfigs);
 
         const rawRules = sectionRules[sec.id] || { rules: [], criteria: "ALL" };
         const conditions = (rawRules.rules || []).map((r, i) => ({
@@ -316,7 +293,6 @@ function deserialiseSectionsJSON(raw, columnsMap) {
     const required    = new Set();
     const rulesMap    = {};
     const visRulesMap = {};
-    const valRulesMap    = {}; // { [columnId]: { conditions, criteria, error? } }
     const fieldConfigsMap = {}; // { [columnId]: { helptext?, maxValues?, maxFiles? } }
 
     const sections = sectionsData
@@ -349,14 +325,6 @@ function deserialiseSectionsJSON(raw, columnsMap) {
                             criteria:   fieldDef.visibilityRules.criteria || "ALL",
                         };
                     }
-                    // Restore validity rules (including error message)
-                    if (fieldDef?.validityRules?.conditions?.length) {
-                        valRulesMap[col.id] = {
-                            conditions: fieldDef.validityRules.conditions,
-                            criteria:   fieldDef.validityRules.criteria || "ALL",
-                            ...(fieldDef.validityRules.error ? { error: fieldDef.validityRules.error } : {}),
-                        };
-                    }
                 }),
             );
 
@@ -387,7 +355,6 @@ function deserialiseSectionsJSON(raw, columnsMap) {
         placedColIds:   placed,
         sectionRules:   rulesMap,
         fieldVisibilityRules: visRulesMap,
-        fieldValidityRules:   valRulesMap,
         fieldConfigs:         fieldConfigsMap,
     };
 }
@@ -599,15 +566,14 @@ function ColumnChip({ col, onDragStart }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // LAYOUT FIELD
 // ─────────────────────────────────────────────────────────────────────────────
-function LayoutField({ col, isRequired, hasVisRules, hasValRules, fieldConfig, onRemove, onDragStart, onToggleRequired, onOpenVisRules, onOpenValRules, onOpenConfig }) {
+function LayoutField({ col, isRequired, hasVisRules, fieldConfig, onRemove, onDragStart, onToggleRequired, onOpenVisRules, onOpenConfig }) {
     const meta = getTypeMeta(col.type);
     const stopDrag = (e) => e.stopPropagation();
-    const showValidity = supportsValidityRules(col.type);
     const hasConfig = !!(fieldConfig?.helptext || fieldConfig?.maxValues !== undefined || fieldConfig?.maxFiles !== undefined);
 
     return (
         <div
-            className={`lfield ${isRequired ? "required" : ""} ${hasVisRules ? "has-vis-rules" : ""} ${hasValRules ? "has-val-rules" : ""} ${hasConfig ? "has-config" : ""}`}
+            className={`lfield ${isRequired ? "required" : ""} ${hasVisRules ? "has-vis-rules" : ""} ${hasConfig ? "has-config" : ""}`}
             draggable
             onDragStart={(e) => onDragStart(e, col)}
         >
@@ -643,18 +609,6 @@ function LayoutField({ col, isRequired, hasVisRules, hasValRules, fieldConfig, o
                 <Icon.Eye />
                 {hasVisRules && <span className="lfield-eye-badge" />}
             </button>
-            {/* Validity button — only shown for supported column types */}
-            {showValidity && (
-                <button
-                    className={`lfield-validity ${hasValRules ? "active" : ""}`}
-                    onMouseDown={stopDrag}
-                    onClick={(e) => { e.stopPropagation(); onOpenValRules(col); }}
-                    title={hasValRules ? "Edit validity rules" : "Add validity rules"}
-                >
-                    <Icon.CheckShield />
-                    {hasValRules && <span className="lfield-validity-badge" />}
-                </button>
-            )}
             <button
                 className="lfield-remove"
                 onMouseDown={stopDrag}
@@ -675,7 +629,6 @@ function SectionRow({
     onRemoveField, onDragStartField, onDropInSlot,
     onToggleRequired, requiredFields,
     fieldVisibilityRules, onOpenVisRules,
-    fieldValidityRules, onOpenValRules,
     fieldConfigs, onOpenConfig,
 }) {
     const [overSlot, setOverSlot] = useState(null);
@@ -696,13 +649,11 @@ function SectionRow({
                                 col={col}
                                 isRequired={requiredFields.has(col.id)}
                                 hasVisRules={!!(fieldVisibilityRules?.[col.id]?.conditions?.length)}
-                                hasValRules={!!(fieldValidityRules?.[col.id]?.conditions?.length)}
                                 fieldConfig={fieldConfigs?.[col.id] || null}
                                 onRemove={(id) => onRemoveField(sectionId, rowIndex, slotIdx, id)}
                                 onDragStart={onDragStartField}
                                 onToggleRequired={onToggleRequired}
                                 onOpenVisRules={onOpenVisRules}
-                                onOpenValRules={onOpenValRules}
                                 onOpenConfig={onOpenConfig}
                             />
                         ) : (
@@ -723,7 +674,6 @@ function Section({
     onDragStartField, onDropInSlot, onToggleRequired, requiredFields,
     onOpenRules, sectionRulesData,
     fieldVisibilityRules, onOpenVisRules,
-    fieldValidityRules, onOpenValRules,
     fieldConfigs, onOpenConfig,
 }) {
     const [editing, setEditing] = useState(false);
@@ -788,8 +738,6 @@ function Section({
                         requiredFields={requiredFields}
                         fieldVisibilityRules={fieldVisibilityRules}
                         onOpenVisRules={onOpenVisRules}
-                        fieldValidityRules={fieldValidityRules}
-                        onOpenValRules={onOpenValRules}
                         fieldConfigs={fieldConfigs}
                         onOpenConfig={onOpenConfig}
                     />
@@ -1137,265 +1085,6 @@ function FieldVisibilityModal({ col, allColumns, rulesData, onSave, onClose }) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// FIELD VALIDITY MODAL  ← NEW
-//
-// Mirrors FieldVisibilityModal in structure. Key differences:
-//   • Uses getValidityOperatorsForType instead of getOperatorsForType
-//   • fieldId picklist includes the field itself (self-referencing is common)
-//   • Header icon is CheckShield (green), explainer explains "must pass" semantics
-//   • Same free-form criteria expression as visibility
-// ─────────────────────────────────────────────────────────────────────────────
-function FieldValidityModal({ col, allColumns, rulesData, onSave, onClose }) {
-    // Unlike visibility, we include the field itself in the picklist (self-referencing)
-    const availableCols = allColumns;
-
-    const makeCondition = () => ({
-        id:       `val_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
-        source:   "field",
-        fieldId:  col.id,
-        operator: getValidityOperatorsForType(col.type)[0]?.id || "not_equals",
-        value:    null,
-    });
-
-    const [conditions, setConditions] = useState(() => {
-        const saved = rulesData?.conditions || [];
-        return saved.length > 0 ? saved.map((c) => ({ ...c })) : [];
-    });
-
-    const initCriteria = () => {
-        const saved = rulesData?.criteria || "";
-        const count = (rulesData?.conditions || []).length;
-        if (saved === "ALL") return count >= 2 ? Array.from({length: count}, (_, i) => i + 1).join(" AND ") : "";
-        if (saved === "ANY") return count >= 2 ? Array.from({length: count}, (_, i) => i + 1).join(" OR ") : "";
-        return saved || "";
-    };
-    const [criteriaExpr, setCriteriaExpr] = useState(initCriteria);
-    const [saveError, setSaveError]       = useState("");
-    const [errorMsg, setErrorMsg]         = useState(rulesData?.error ?? `${col.title} has an error`);
-
-    const addCondition    = () => { setSaveError(""); setConditions((prev) => [...prev, makeCondition()]); };
-    const removeCondition = (id) => { setSaveError(""); setConditions((prev) => prev.filter((c) => c.id !== id)); };
-
-    const updateCondition = (id, key, val) => {
-        setConditions((prev) => prev.map((c) => {
-            if (c.id !== id) return c;
-            const updated = { ...c, [key]: val };
-            if (key === "fieldId") {
-                const srcCol     = allColumns.find((ac) => ac.id === val);
-                const ops        = srcCol ? getValidityOperatorsForType(srcCol.type) : [];
-                updated.operator = ops[0]?.id || "not_equals";
-                updated.value    = null;
-            }
-            // All validity operators take a value (blank = null is valid),
-            // so we never auto-clear the value when the operator changes.
-            return updated;
-        }));
-    };
-
-    const validateExpression = (expr, condCount) => {
-        if (!expr) return "Please enter a logic expression (e.g. 1 AND 2).";
-        if (!/^[\d\sANDOR()]+$/i.test(expr)) return "Invalid expression. Use condition numbers, AND, OR, and parentheses only.";
-        const nums = expr.match(/\d+/g) || [];
-        for (const n of nums) {
-            const idx = parseInt(n, 10);
-            if (idx < 1 || idx > condCount) return `Condition ${n} doesn't exist. Use numbers 1–${condCount}.`;
-        }
-        let depth = 0;
-        for (const ch of expr) {
-            if (ch === "(") depth++;
-            if (ch === ")") depth--;
-            if (depth < 0) return "Unbalanced parentheses in expression.";
-        }
-        if (depth !== 0) return "Unbalanced parentheses in expression.";
-        return null; // valid
-    };
-
-    const handleSave = () => {
-        setSaveError("");
-
-        // Allow blank values — null means "blank" (e.g. not_equals+null = must not be empty).
-        // Only reject conditions that have no fieldId at all.
-        const validConditions = conditions
-            .filter((c) => c.fieldId)
-            .map((c) => ({
-                ...c,
-                // Normalise empty string → null so the JSON is consistent with the spec
-                value: (c.value === "" || c.value === undefined) ? null : c.value,
-            }));
-
-        if (validConditions.length >= 2) {
-            const err = validateExpression(criteriaExpr.trim(), validConditions.length);
-            if (err) { setSaveError(err); return; }
-        }
-        const finalCriteria = validConditions.length >= 2
-            ? criteriaExpr.trim().toUpperCase()
-            : validConditions.length === 1 ? "1" : "";
-        onSave(validConditions.length > 0
-            ? { conditions: validConditions, criteria: finalCriteria, error: errorMsg.trim() || `${col.title} has an error` }
-            : { conditions: [], criteria: "" });
-    };
-
-    const hasRules = conditions.length > 0;
-    const colMeta  = getTypeMeta(col.type);
-
-    return (
-        <div className="fvm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
-            <div className="fvm-modal fvm-modal--validity">
-                {/* ── Header ── */}
-                <div className="fvm-header">
-                    <div className="fvm-header-left">
-                        <div className="fvm-header-icon fvm-header-icon--validity">
-                            <Icon.CheckShield />
-                        </div>
-                        <div>
-                            <h2 className="fvm-title">Field Validity Rules</h2>
-                            <p className="fvm-subtitle">
-                                <span className="fvm-field-pill">
-                                    <span className="fvm-field-dot" style={{ background: colMeta.color }} />
-                                    {col.title}
-                                    <span className="fvm-field-type">{colMeta.label}</span>
-                                </span>
-                            </p>
-                        </div>
-                    </div>
-                    <button className="fvm-close" onClick={onClose} title="Close"><Icon.Close /></button>
-                </div>
-
-                {/* ── Body ── */}
-                <div className="fvm-body">
-                    <div className="fvm-explainer fvm-explainer--validity">
-                        <span className="fvm-explainer-icon">✅</span>
-                        <p>
-                            This field's value must <strong>pass all conditions</strong> before the form can be submitted.
-                            Leave empty for no validation.
-                        </p>
-                    </div>
-
-                    <div className="fvm-conditions-list">
-                        {conditions.length === 0 && (
-                            <div className="fvm-empty">No conditions defined — field accepts any value.</div>
-                        )}
-
-                        {conditions.map((cond, idx) => {
-                            const srcCol  = allColumns.find((c) => c.id === cond.fieldId);
-                            const ops     = srcCol ? getValidityOperatorsForType(srcCol.type) : [{ id: "not_equals", label: "not equals", needsValue: true }];
-                            const srcMeta = srcCol ? getTypeMeta(srcCol.type) : { color: "#9d99b9", label: "" };
-                            const valInputType = getValidityValueInputType(srcCol?.type || "text");
-
-                            return (
-                                <div key={cond.id} className="fvm-condition-row">
-                                    <span className="fvm-cond-num">{idx + 1}</span>
-                                    <div className="fvm-source-badge">Field</div>
-
-                                    {/* Field picklist — includes the field itself */}
-                                    <select
-                                        className="fvm-select fvm-select-field"
-                                        value={cond.fieldId}
-                                        onChange={(e) => updateCondition(cond.id, "fieldId", e.target.value)}
-                                    >
-                                        {availableCols.map((c) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.id === col.id ? `${c.title} (this field)` : c.title}
-                                            </option>
-                                        ))}
-                                    </select>
-
-                                    <span className="fvm-type-badge" style={{ background: srcMeta.color + "22", color: srcMeta.color }}>
-                                        {srcMeta.label}
-                                    </span>
-
-                                    <select
-                                        className="fvm-select fvm-select-op"
-                                        value={cond.operator}
-                                        onChange={(e) => updateCondition(cond.id, "operator", e.target.value)}
-                                    >
-                                        {ops.map((op) => <option key={op.id} value={op.id}>{op.label}</option>)}
-                                    </select>
-
-                                    {/* Value input — always shown; leave blank to mean null/empty */}
-                                    <input
-                                        className="fvm-input"
-                                        type={valInputType}
-                                        value={cond.value === null || cond.value === undefined ? "" : cond.value}
-                                        placeholder="blank"
-                                        onChange={(e) => updateCondition(cond.id, "value", e.target.value)}
-                                    />
-
-                                    <button className="fvm-remove-btn" onClick={() => removeCondition(cond.id)} title="Remove condition">
-                                        <Icon.Trash />
-                                    </button>
-                                </div>
-                            );
-                        })}
-                    </div>
-
-                    <button className="fvm-add-btn" onClick={addCondition}>
-                        <Icon.Plus /> Add Condition
-                    </button>
-
-                    {conditions.length >= 2 && (
-                        <div className="fvm-criteria">
-                            <span className="fvm-criteria-label">Valid when:</span>
-                            <div className="fvm-criteria-preview" style={{ marginBottom: "6px" }}>
-                                <span className="fvm-criteria-preview-label">Available:</span>
-                                <code>{conditions.map((_, i) => i + 1).join(", ")}</code>
-                            </div>
-                            <input
-                                className="fvm-input"
-                                type="text"
-                                value={criteriaExpr}
-                                placeholder="e.g. 1 AND 2 AND 3"
-                                onChange={(e) => { setCriteriaExpr(e.target.value); setSaveError(""); }}
-                                style={{ fontFamily: "var(--mono)", fontSize: "13px" }}
-                            />
-                            <div style={{ fontSize: "11px", color: "#676879", marginTop: "4px" }}>
-                                Use condition numbers with AND, OR, and parentheses. Example: <code style={{ background: "#fff", border: "1px solid #d0d4e4", borderRadius: "3px", padding: "1px 5px" }}>1 AND (2 OR 3)</code>
-                            </div>
-                        </div>
-                    )}
-
-                    {saveError && (
-                        <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "9px 12px", background: "#fff4f6", border: "1px solid #fac0cb", borderRadius: "6px", color: "#b82020", fontSize: "13px" }}>
-                            <span style={{ fontSize: "15px", flexShrink: 0 }}>⚠️</span>
-                            <span>{saveError}</span>
-                        </div>
-                    )}
-
-                    {/* ── Error message input ── always visible so user can customise it ── */}
-                    <div className="fvm-error-msg-section">
-                        <label className="fvm-error-msg-label">
-                            <span className="fvm-error-msg-label-text">⚠️ Error message</span>
-                            <span className="fvm-error-msg-required">shown to user on failed validation</span>
-                        </label>
-                        <input
-                            className="fvm-input fvm-error-msg-input"
-                            type="text"
-                            value={errorMsg}
-                            placeholder={`${col.title} has an error`}
-                            onChange={(e) => setErrorMsg(e.target.value)}
-                        />
-                    </div>
-                </div>
-
-                {/* ── Footer ── */}
-                <div className="fvm-footer">
-                    {hasRules && (
-                        <button className="fvm-clear-btn" onClick={() => { setConditions([]); setCriteriaExpr(""); setSaveError(""); }}>
-                            Clear All Rules
-                        </button>
-                    )}
-                    <div className="fvm-footer-right">
-                        <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
-                        <button className="srm-btn-primary srm-btn-primary--validity" onClick={handleSave}>
-                            <Icon.Check /> Save Rules
-                        </button>
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-// ─────────────────────────────────────────────────────────────────────────────
 function ChildBoardColPicker({ boardName, boardColumns, selectedCols, onToggle, onClose }) {
     return (
         <div className="srm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
@@ -1525,6 +1214,514 @@ function PlacedChildBoardCard({ child, cardKey, pickerOpen, boardCols, onOpenCol
 }
 
 // ═══════════════════════════════════════════════════════════════════════════════
+// VALIDATION RULE MODAL
+// Full editor for a single board-level validation rule.
+// Simple mode: structured row builder (field / op / value|field, with arithmetic LHS).
+// Formula mode: free-form expression string with {fieldId} references.
+// ═══════════════════════════════════════════════════════════════════════════════
+function ValidationRuleModal({ rule, allColumns, onSave, onClose }) {
+    // ── Local state initialised from rule prop ──────────────────────────────
+    const [name,        setName]        = useState(rule.name       || "");
+    const [mode,        setMode]        = useState(rule.mode       || "simple");
+    const [errorMsg,    setErrorMsg]    = useState(rule.error      || "");
+    const [formula,     setFormula]     = useState(rule.expression || "");
+    const [saveErr,     setSaveErr]     = useState("");
+    const [syntaxResult,   setSyntaxResult]   = useState(null);  // null | { valid, message }
+    const [syntaxChecked,  setSyntaxChecked]  = useState(
+        // Pre-populate as checked if editing an existing rule with an expression
+        !!(rule.expression && rule.expression.trim())
+    );
+
+    // Simple rows — each row is one condition line in the structured builder
+    const makeEmptyRow = () => ({
+        id:        makeRowId(),
+        lhsType:   "field",
+        lhsField:  allColumns[0]?.id || "",
+        lhsOp:     "+",
+        lhsField2: allColumns[1]?.id || allColumns[0]?.id || "",
+        operator:  "==",
+        rhsType:   "value",
+        rhsValue:  "",
+        rhsField:  allColumns[0]?.id || "",
+    });
+
+    const [rows,     setRows]     = useState(() => {
+        if (rule.simpleRows?.length) return rule.simpleRows.map(r => ({ ...r }));
+        return [makeEmptyRow()];
+    });
+    const [criteria, setCriteria] = useState(rule.simpleCriteria || "");
+
+    // ── Row helpers ─────────────────────────────────────────────────────────
+    const resetSyntax = () => { setSyntaxResult(null); setSyntaxChecked(false); };
+    const addRow    = () => { setRows(prev => [...prev, makeEmptyRow()]); resetSyntax(); };
+    const removeRow = (id) => { setRows(prev => prev.filter(r => r.id !== id)); resetSyntax(); };
+    const updateRow = (id, patch) => {
+        setRows(prev => prev.map(r => r.id === id ? { ...r, ...patch } : r));
+        resetSyntax();
+    };
+
+    // When lhsField changes on a row, reset the operator to a sensible default
+    const handleLhsFieldChange = (rowId, newFieldId) => {
+        const col = allColumns.find(c => c.id === newFieldId);
+        const ops = col ? getComparisonOpsForType(col.type) : COMPARISON_OPS;
+        updateRow(rowId, { lhsField: newFieldId, operator: ops[0]?.id || "==" });
+    };
+
+    // ── Collect all field IDs referenced in simple rows ─────────────────────
+    const referencedFieldIds = (rowList) => {
+        const ids = new Set();
+        rowList.forEach(r => {
+            if (r.lhsField)  ids.add(r.lhsField);
+            if (r.lhsType === "arithmetic" && r.lhsField2) ids.add(r.lhsField2);
+            if (r.rhsType === "field" && r.rhsField) ids.add(r.rhsField);
+        });
+        return [...ids];
+    };
+
+    // ── columnsMap for buildExpressionFromSimpleRows ────────────────────────
+    const columnsMap = Object.fromEntries(allColumns.map(c => [c.id, c]));
+
+    // ── Check syntax ────────────────────────────────────────────────────────
+    const handleCheckSyntax = () => {
+        let exprToCheck = "";
+        if (mode === "formula") {
+            exprToCheck = formula.trim();
+            if (!exprToCheck) { setSyntaxResult({ valid: false, message: "Expression is empty." }); setSyntaxChecked(true); return; }
+        } else {
+            // Simple mode — build expression from rows first
+            const validRows = rows.filter(r => r.lhsField);
+            if (validRows.length === 0) { setSyntaxResult({ valid: false, message: "Add at least one condition row." }); setSyntaxChecked(true); return; }
+            try {
+                exprToCheck = buildExpressionFromSimpleRows(
+                    validRows,
+                    validRows.length === 1 ? "1" : criteria.trim().toUpperCase(),
+                    columnsMap
+                );
+            } catch (e) {
+                setSyntaxResult({ valid: false, message: "Could not build expression: " + e.message });
+                setSyntaxChecked(true);
+                return;
+            }
+        }
+        const result = validateExpression(exprToCheck);
+        setSyntaxResult(result);
+        setSyntaxChecked(true);
+    };
+
+    // ── Validate and save ───────────────────────────────────────────────────
+    const handleSave = () => {
+        setSaveErr("");
+        if (!name.trim()) { setSaveErr("Please enter a rule name."); return; }
+
+        // Require syntax check before saving
+        if (!syntaxChecked) {
+            setSaveErr("Please check the expression syntax before saving.");
+            return;
+        }
+        if (syntaxResult && !syntaxResult.valid) {
+            setSaveErr("Fix the expression syntax error before saving.");
+            return;
+        }
+
+        let expression = "";
+        let fields = [];
+        let simpleRows = undefined;
+        let simpleCriteria = undefined;
+
+        if (mode === "simple") {
+            const validRows = rows.filter(r => r.lhsField);
+            if (validRows.length === 0) { setSaveErr("Add at least one condition row."); return; }
+            if (validRows.length >= 2) {
+                const expr = criteria.trim();
+                if (!expr) { setSaveErr("Enter a logic expression (e.g. 1 AND 2)."); return; }
+                if (!/^[\d\sANDOR()]+$/i.test(expr)) { setSaveErr("Use condition numbers, AND, OR, and parentheses only."); return; }
+                const nums = expr.match(/\d+/g) || [];
+                for (const n of nums) {
+                    const idx = parseInt(n, 10);
+                    if (idx < 1 || idx > validRows.length) {
+                        setSaveErr(`Condition ${n} doesn't exist. Use numbers 1–${validRows.length}.`);
+                        return;
+                    }
+                }
+            }
+            try {
+                expression = buildExpressionFromSimpleRows(
+                    validRows,
+                    validRows.length === 1 ? "1" : criteria.trim().toUpperCase(),
+                    columnsMap
+                );
+            } catch(e) {
+                setSaveErr("Could not build expression: " + e.message);
+                return;
+            }
+            fields = referencedFieldIds(validRows);
+            simpleRows = validRows;
+            simpleCriteria = validRows.length >= 2 ? criteria.trim().toUpperCase() : "1";
+        } else {
+            // Formula mode
+            if (!formula.trim()) { setSaveErr("Enter a formula expression."); return; }
+            expression = formula.trim();
+            // Extract {fieldId} references
+            const matches = [...formula.matchAll(/\{([^}]+)\}/g)];
+            fields = [...new Set(matches.map(m => m[1]))];
+        }
+
+        const saved = {
+            ...rule,
+            name:    name.trim(),
+            mode,
+            expression,
+            error:   errorMsg.trim(),
+            fields,
+            ...(mode === "simple" ? { simpleRows, simpleCriteria } : {}),
+        };
+        onSave(saved);
+    };
+
+    const colMeta = (colId) => {
+        const col = allColumns.find(c => c.id === colId);
+        return col ? getTypeMeta(col.type) : { color: "#9d99b9", label: "" };
+    };
+
+    // ── Render ──────────────────────────────────────────────────────────────
+    return (
+        <div className="vrm-backdrop" onClick={e => e.target === e.currentTarget && onClose()}>
+            <div className="vrm-modal">
+                {/* Header */}
+                <div className="vrm-header">
+                    <div className="vrm-header-left">
+                        <div className="vrm-header-icon"><Icon.Check /></div>
+                        <div>
+                            <h2 className="vrm-title">{rule.expression ? "Edit Validation Rule" : "New Validation Rule"}</h2>
+                            <p className="vrm-subtitle">Board-level · evaluated at form submission</p>
+                        </div>
+                    </div>
+                    <button className="vrm-close" onClick={onClose} title="Close"><Icon.Close /></button>
+                </div>
+
+                {/* Body */}
+                <div className="vrm-body">
+                    {/* Rule name */}
+                    <div className="vrm-field-group">
+                        <label className="vrm-label">Rule name</label>
+                        <input
+                            className="vrm-input"
+                            type="text"
+                            value={name}
+                            placeholder="e.g. Fabric percentages must sum to 100"
+                            onChange={e => setName(e.target.value)}
+                            autoFocus
+                        />
+                    </div>
+
+                    {/* Mode toggle */}
+                    <div className="vrm-field-group">
+                        <label className="vrm-label">Rule type</label>
+                        <div className="vrm-toggle-row">
+                            <button
+                                className={`vrm-toggle-btn ${mode === "simple" ? "active" : ""}`}
+                                onClick={() => setMode("simple")}
+                            >Simple</button>
+                            <button
+                                className={`vrm-toggle-btn vrm-toggle-btn--formula ${mode === "formula" ? "active" : ""}`}
+                                onClick={() => setMode("formula")}
+                            >Formula</button>
+                        </div>
+                    </div>
+
+                    {/* ── SIMPLE MODE ─── */}
+                    {mode === "simple" && (
+                        <div className="vrm-simple-builder">
+                            <div className="vrm-rows-list">
+                                {rows.map((row, idx) => {
+                                    const lhsCol   = allColumns.find(c => c.id === row.lhsField);
+                                    const compOps  = lhsCol ? getComparisonOpsForType(lhsCol.type) : COMPARISON_OPS;
+                                    const needsVal = comparisonOpNeedsValue(row.operator);
+                                    const isNumeric = lhsCol && (NUMERIC_COL_TYPES.has(lhsCol.type) || DATE_COL_TYPES.has(lhsCol.type));
+                                    const lhsMeta  = colMeta(row.lhsField);
+                                    const lhs2Meta = colMeta(row.lhsField2);
+
+                                    return (
+                                        <div key={row.id} className="vrm-row">
+                                            <span className="vrm-row-num">{idx + 1}</span>
+
+                                            {/* LHS — field selector with optional arithmetic */}
+                                            <div className="vrm-lhs">
+                                                <div className="vrm-lhs-field-wrap">
+                                                    <span className="vrm-field-dot" style={{ background: lhsMeta.color }} />
+                                                    <select
+                                                        className="vrm-select vrm-select-field"
+                                                        value={row.lhsField}
+                                                        onChange={e => handleLhsFieldChange(row.id, e.target.value)}
+                                                    >
+                                                        {allColumns.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                                                    </select>
+                                                </div>
+
+                                                {/* Arithmetic toggle */}
+                                                <button
+                                                    className={`vrm-arith-toggle ${row.lhsType === "arithmetic" ? "active" : ""}`}
+                                                    onClick={() => updateRow(row.id, { lhsType: row.lhsType === "arithmetic" ? "field" : "arithmetic" })}
+                                                    title={row.lhsType === "arithmetic" ? "Remove arithmetic" : "Add arithmetic (e.g. Field + Field)"}
+                                                >
+                                                    {row.lhsType === "arithmetic" ? "−" : "+field"}
+                                                </button>
+
+                                                {/* Second LHS field for arithmetic */}
+                                                {row.lhsType === "arithmetic" && (
+                                                    <div className="vrm-arith-ext">
+                                                        <select
+                                                            className="vrm-select vrm-select-op-sm"
+                                                            value={row.lhsOp}
+                                                            onChange={e => updateRow(row.id, { lhsOp: e.target.value })}
+                                                        >
+                                                            {ARITHMETIC_OPS.map(op => <option key={op.id} value={op.id}>{op.label}</option>)}
+                                                        </select>
+                                                        <span className="vrm-field-dot" style={{ background: lhs2Meta.color }} />
+                                                        <select
+                                                            className="vrm-select vrm-select-field"
+                                                            value={row.lhsField2}
+                                                            onChange={e => updateRow(row.id, { lhsField2: e.target.value })}
+                                                        >
+                                                            {allColumns.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                                                        </select>
+                                                    </div>
+                                                )}
+                                            </div>
+
+                                            {/* Comparison operator */}
+                                            <select
+                                                className="vrm-select vrm-select-op"
+                                                value={row.operator}
+                                                onChange={e => updateRow(row.id, { operator: e.target.value })}
+                                            >
+                                                {compOps.map(op => <option key={op.id} value={op.id}>{op.label}</option>)}
+                                            </select>
+
+                                            {/* RHS */}
+                                            {needsVal && (
+                                                <div className="vrm-rhs">
+                                                    <div className="vrm-rhs-type-toggle">
+                                                        <button
+                                                            className={`vrm-rhs-btn ${row.rhsType === "value" ? "active" : ""}`}
+                                                            onClick={() => updateRow(row.id, { rhsType: "value" })}
+                                                        >Value</button>
+                                                        <button
+                                                            className={`vrm-rhs-btn ${row.rhsType === "field" ? "active" : ""}`}
+                                                            onClick={() => updateRow(row.id, { rhsType: "field" })}
+                                                        >Field</button>
+                                                    </div>
+                                                    {row.rhsType === "value" ? (
+                                                        <input
+                                                            className="vrm-input vrm-input-rhs"
+                                                            type={isNumeric ? "number" : "text"}
+                                                            value={row.rhsValue}
+                                                            placeholder="value…"
+                                                            onChange={e => updateRow(row.id, { rhsValue: e.target.value })}
+                                                        />
+                                                    ) : (
+                                                        <div className="vrm-lhs-field-wrap">
+                                                            <span className="vrm-field-dot" style={{ background: colMeta(row.rhsField).color }} />
+                                                            <select
+                                                                className="vrm-select vrm-select-field"
+                                                                value={row.rhsField}
+                                                                onChange={e => updateRow(row.id, { rhsField: e.target.value })}
+                                                            >
+                                                                {allColumns.map(c => <option key={c.id} value={c.id}>{c.title}</option>)}
+                                                            </select>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+
+                                            <button className="vrm-row-remove" onClick={() => removeRow(row.id)} title="Remove row">
+                                                <Icon.Trash />
+                                            </button>
+                                        </div>
+                                    );
+                                })}
+                            </div>
+
+                            <button className="vrm-add-row-btn" onClick={addRow}>
+                                <Icon.Plus /> Add condition
+                            </button>
+
+                            {/* Logic expression when 2+ rows */}
+                            {rows.length >= 2 && (
+                                <div className="vrm-criteria-box">
+                                    <span className="vrm-criteria-label">Logic:</span>
+                                    <input
+                                        className="vrm-input vrm-input-mono"
+                                        type="text"
+                                        value={criteria}
+                                        placeholder={`e.g. 1 AND 2`}
+                                        onChange={e => { setCriteria(e.target.value); setSaveErr(""); resetSyntax(); }}
+                                    />
+                                    <span className="vrm-criteria-hint">Use: AND, OR, ( ) and numbers 1–{rows.length}</span>
+                                </div>
+                            )}
+
+                            {/* Check Syntax — simple mode */}
+                            <div className="vrm-syntax-row">
+                                <button className="vrm-syntax-check-btn" onClick={handleCheckSyntax}>
+                                    ⚡ Check Syntax
+                                </button>
+                                {syntaxResult && (
+                                    <span className={`vrm-syntax-result ${syntaxResult.valid ? "valid" : "invalid"}`}>
+                                        {syntaxResult.valid ? "✓ Expression is valid" : `✗ ${syntaxResult.message}`}
+                                    </span>
+                                )}
+                            </div>
+                        </div>
+                    )}
+
+                    {/* ── FORMULA MODE ─── */}
+                    {mode === "formula" && (
+                        <div className="vrm-formula-builder">
+                            <div className="vrm-formula-explainer">
+                                Reference fields using <code>{"{fieldId}"}</code> syntax. Expression must return <code>true</code> to pass. Example:
+                                <code className="vrm-formula-example">{"  {fabric1} + {fabric2} == 100  "}</code>
+                            </div>
+                            <textarea
+                                className="vrm-formula-input"
+                                value={formula}
+                                placeholder="{field_id} + {other_field_id} == 100"
+                                onChange={e => { setFormula(e.target.value); resetSyntax(); }}
+                                rows={3}
+                                spellCheck={false}
+                            />
+                            {/* Check Syntax — formula mode */}
+                            <div className="vrm-syntax-row">
+                                <button className="vrm-syntax-check-btn" onClick={handleCheckSyntax}>
+                                    ⚡ Check Syntax
+                                </button>
+                                {syntaxResult && (
+                                    <span className={`vrm-syntax-result ${syntaxResult.valid ? "valid" : "invalid"}`}>
+                                        {syntaxResult.valid ? "✓ Expression is valid" : `✗ ${syntaxResult.message}`}
+                                    </span>
+                                )}
+                            </div>
+                            {/* Field reference panel */}
+                            <div className="vrm-field-ref-panel">
+                                <div className="vrm-field-ref-title">Available fields</div>
+                                <div className="vrm-field-ref-chips">
+                                    {allColumns.map(col => {
+                                        const meta = getTypeMeta(col.type);
+                                        return (
+                                            <button
+                                                key={col.id}
+                                                className="vrm-field-ref-chip"
+                                                title={`Click to insert {${col.id}}`}
+                                                onClick={() => { setFormula(f => f + `{${col.id}}`); resetSyntax(); }}
+                                            >
+                                                <span className="vrm-field-dot" style={{ background: meta.color }} />
+                                                <span className="vrm-field-ref-name">{col.title}</span>
+                                                <code className="vrm-field-ref-id">{col.id}</code>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {/* Error message */}
+                    <div className="vrm-field-group">
+                        <label className="vrm-label">Error message <span className="vrm-label-hint">shown when validation fails</span></label>
+                        <input
+                            className="vrm-input vrm-input-error"
+                            type="text"
+                            value={errorMsg}
+                            placeholder="e.g. Fabric percentages must add up to 100%"
+                            onChange={e => setErrorMsg(e.target.value)}
+                        />
+                    </div>
+
+                    {saveErr && (
+                        <div className="vrm-save-error">
+                            <span>⚠️</span> {saveErr}
+                        </div>
+                    )}
+                </div>
+
+                {/* Footer */}
+                <div className="vrm-footer">
+                    <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="srm-btn-primary" onClick={handleSave}>
+                        <Icon.Check /> Save Rule
+                    </button>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
+// VALIDATION RULES ZONE
+// Board-level validation rules panel — below Related Lists on the canvas.
+// Simple list view: each rule shows name, trigger badge, error text, edit/delete.
+// Full rule editor modal comes in a future phase.
+// ═══════════════════════════════════════════════════════════════════════════════
+function ValidationRulesZone({ rules, collapsed, onToggleCollapsed, onAddRule, onDeleteRule, onEditRule }) {
+    return (
+        <div className="vrz-zone">
+            <div className="vrz-header" onClick={onToggleCollapsed}>
+                <div className="vrz-header-left">
+                    <span className="vrz-icon">
+                        <Icon.Check />
+                    </span>
+                    <h3 className="vrz-title">Validation Rules</h3>
+                    <span className="vrz-badge">{rules.length}</span>
+                </div>
+                <div className="vrz-header-right">
+                    <span className="vrz-hint">Board-level rules evaluated at submit</span>
+                    <span className={`vrz-caret ${collapsed ? "" : "open"}`}><Icon.Chevron /></span>
+                </div>
+            </div>
+
+            {!collapsed && (
+                <div className="vrz-body">
+                    {rules.length === 0 ? (
+                        <div className="vrz-empty">
+                            <span className="vrz-empty-icon">✓</span>
+                            <p>No validation rules defined. Add rules to enforce cross-field constraints at form submission.</p>
+                        </div>
+                    ) : (
+                        <div className="vrz-cards">
+                            {rules.map((rule) => (
+                                <div key={rule.id} className="vrz-card">
+                                    <div className="vrz-card-left">
+                                        <div className="vrz-card-top">
+                                            <span className="vrz-card-name">{rule.name || "Unnamed rule"}</span>
+                                            <span className={`vrz-card-mode ${rule.mode === "formula" ? "formula" : "simple"}`}>
+                                                {rule.mode === "formula" ? "Formula" : "Simple"}
+                                            </span>
+                                        </div>
+                                        <div className="vrz-card-error">⚠ {rule.error || "No error message set"}</div>
+                                        {rule.expression && (
+                                            <code className="vrz-card-expr">{rule.expression}</code>
+                                        )}
+                                    </div>
+                                    <div className="vrz-card-actions">
+                                        <button className="vrz-card-btn" onClick={() => onEditRule(rule)} title="Edit rule">✏️</button>
+                                        <button className="vrz-card-btn danger" onClick={() => onDeleteRule(rule.id)} title="Delete rule">
+                                            <Icon.Trash />
+                                        </button>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                    <button className="vrz-add-btn" onClick={onAddRule}>
+                        <Icon.Plus /> Add Validation Rule
+                    </button>
+                </div>
+            )}
+        </div>
+    );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════════
 // MAIN APP
 // ═══════════════════════════════════════════════════════════════════════════════
 export default function App() {
@@ -1553,13 +1750,14 @@ export default function App() {
     const [fieldVisibilityRules, setFieldVisibilityRules] = useState({});
     const [visRulesModalColId, setVisRulesModalColId]     = useState(null);
 
-    // ── Field-level validity rules ────────────────────────────────────────────
-    const [fieldValidityRules, setFieldValidityRules]   = useState({});
-    const [valRulesModalColId, setValRulesModalColId]   = useState(null);
-
     // ── Field configs (helptext, maxValues, maxFiles) ─────────────────────────
     const [fieldConfigs, setFieldConfigs]         = useState({});
     const [configModalColId, setConfigModalColId] = useState(null);
+
+    // ── Board-level validation rules (Validation Rules column) ────────────────
+    const [validationRules, setValidationRules]         = useState([]);
+    const [valRulesCollapsed, setValRulesCollapsed]     = useState(false);
+    const [valRuleModalData,  setValRuleModalData]      = useState(null); // null | rule object
 
     // ── Child boards ──────────────────────────────────────────────────────────
     const [allChildBoards,     setAllChildBoards]     = useState([]);
@@ -1596,11 +1794,13 @@ export default function App() {
                 `Found: ${res.columns.map((c) => `"${c.title}"`).join(", ")}`,
             );
         }
-        const childBoardsCol = find(PLS_COL_TITLE_CHILD_BOARDS);
+        const childBoardsCol     = find(PLS_COL_TITLE_CHILD_BOARDS);
+        const validationRulesCol = find(PLS_COL_TITLE_VAL_RULES);
         plsColsRef.current = {
-            boardIdColId:     boardIdCol.id,
-            sectionsColId:    sectionsCol.id,
-            childBoardsColId: childBoardsCol?.id || null,
+            boardIdColId:         boardIdCol.id,
+            sectionsColId:        sectionsCol.id,
+            childBoardsColId:     childBoardsCol?.id     || null,
+            validationRulesColId: validationRulesCol?.id || null,
         };
         return plsColsRef.current;
     };
@@ -1618,8 +1818,8 @@ export default function App() {
                 setRequiredFields(new Set());
                 setSectionRules({});
                 setFieldVisibilityRules({});
-                setFieldValidityRules({});
                 setFieldConfigs({});
+                setValidationRules([]);
                 setPlacedChildBoards([]);
                 return;
             }
@@ -1647,8 +1847,8 @@ export default function App() {
                 setRequiredFields(new Set());
                 setSectionRules({});
                 setFieldVisibilityRules({});
-                setFieldValidityRules({});
                 setFieldConfigs({});
+                setValidationRules([]);
                 setPlacedChildBoards([]);
                 return;
             }
@@ -1658,8 +1858,38 @@ export default function App() {
             setRequiredFields(parsed.requiredFields);
             setSectionRules(parsed.sectionRules);
             setFieldVisibilityRules(parsed.fieldVisibilityRules || {});
-            setFieldValidityRules(parsed.fieldValidityRules || {});
             setFieldConfigs(parsed.fieldConfigs || {});
+
+            // Load board-level validation rules
+            if (plsCols.validationRulesColId) {
+                const vrCV = record.column_values.find((cv) => cv.id === plsCols.validationRulesColId);
+                let rawVr = vrCV?.text?.trim() || "";
+                if (!rawVr) {
+                    try { const o = JSON.parse(vrCV?.value || ""); if (typeof o.text === "string") rawVr = o.text.trim(); } catch (_) {}
+                }
+                if (rawVr) {
+                    try {
+                        const saved = JSON.parse(rawVr);
+                        if (Array.isArray(saved)) {
+                            // Edge case: expression may be corrupted by manual JSON edits.
+                            // If a rule's expression fails syntax validation, default it to "true"
+                            // so the rule never blocks submission until the author fixes it.
+                            const sanitized = saved.map(rule => {
+                                if (!rule.expression || !rule.expression.trim()) return rule;
+                                const check = validateExpression(rule.expression);
+                                if (!check.valid) {
+                                    console.warn(`[PLB] Rule "${rule.id}" has invalid expression — defaulting to true. Reason: ${check.message}`);
+                                    return { ...rule, expression: "true", _expressionFallback: true };
+                                }
+                                return rule;
+                            });
+                            setValidationRules(sanitized);
+                        }
+                    } catch (_) { console.warn("[PLB] Could not parse validation rules JSON"); }
+                } else {
+                    setValidationRules([]);
+                }
+            }
 
             if (plsCols.childBoardsColId) {
                 const cbCV = record.column_values.find((cv) => cv.id === plsCols.childBoardsColId);
@@ -1694,10 +1924,9 @@ export default function App() {
         setRequiredFields(new Set());
         setSectionRules({});
         setFieldVisibilityRules({});
-        setFieldValidityRules({});   // NEW
         setFieldConfigs({});
+        setValidationRules([]);
         setVisRulesModalColId(null);
-        setValRulesModalColId(null);
         setConfigModalColId(null);
         setLayoutRecordId(null);
         setSaveMsg(null);
@@ -1781,10 +2010,8 @@ export default function App() {
                 setPlacedColIds((p)       => { const n = new Set(p); n.delete(removed.id); return n; });
                 setRequiredFields((p)     => { const n = new Set(p); n.delete(removed.id); return n; });
                 setFieldVisibilityRules((p) => { const n = { ...p }; delete n[removed.id]; return n; });
-                setFieldValidityRules((p)   => { const n = { ...p }; delete n[removed.id]; return n; });
                 setFieldConfigs((p)         => { const n = { ...p }; delete n[removed.id]; return n; });
                 setVisRulesModalColId((cur) => (cur === removed.id ? null : cur));
-                setValRulesModalColId((cur) => (cur === removed.id ? null : cur));
                 setConfigModalColId((cur)   => (cur === removed.id ? null : cur));
             }
             while (sec.rows.length > 1) {
@@ -1901,20 +2128,6 @@ export default function App() {
         setVisRulesModalColId(null);
     };
 
-    // ── Field validity rule handlers ─────────────────────────────────────────
-    const openValRulesModal  = (col) => setValRulesModalColId(col.id);
-    const closeValRulesModal = ()    => setValRulesModalColId(null);
-
-    const saveValRulesForField = (colId, rulesData) => {
-        setFieldValidityRules((prev) => {
-            if (!rulesData || rulesData.conditions.length === 0) {
-                const n = { ...prev }; delete n[colId]; return n;
-            }
-            return { ...prev, [colId]: rulesData };
-        });
-        setValRulesModalColId(null);
-    };
-
     // ── Field config handlers (helptext, maxValues, maxFiles) ─────────────────
     const openConfigModal  = (col) => setConfigModalColId(col.id);
     const closeConfigModal = ()    => setConfigModalColId(null);
@@ -1937,6 +2150,39 @@ export default function App() {
         setRulesModalSectionId(null);
     };
 
+    // ── Board-level validation rule handlers ─────────────────────────────────
+    const handleAddValidationRule = () => {
+        // Open modal with a blank rule template
+        setValRuleModalData({
+            id:          makeRuleId(),
+            name:        "",
+            mode:        "simple",
+            expression:  "",
+            error:       "",
+            fields:      [],
+            simpleRows:  [],
+            _isNew:      true,
+        });
+    };
+
+    const handleDeleteValidationRule = (ruleId) => {
+        setValidationRules((prev) => prev.filter((r) => r.id !== ruleId));
+    };
+
+    const handleEditValidationRule = (rule) => {
+        setValRuleModalData({ ...rule });
+    };
+
+    const handleSaveValidationRule = (savedRule) => {
+        const isNew = savedRule._isNew;
+        const clean = { ...savedRule };
+        delete clean._isNew;
+        setValidationRules((prev) =>
+            isNew ? [...prev, clean] : prev.map((r) => r.id === clean.id ? clean : r)
+        );
+        setValRuleModalData(null);
+    };
+
     // ── SAVE ─────────────────────────────────────────────────────────────────
     const handleSave = async () => {
         if (!selectedBoard) return;
@@ -1946,9 +2192,8 @@ export default function App() {
         try {
             const plsCols = await ensurePLSCols();
 
-            // Pass fieldValidityRules as 5th arg to serialiser
             const sectionsJson = serialiseSectionsJSON(
-                sections, requiredFields, sectionRules, fieldVisibilityRules, fieldValidityRules, fieldConfigs
+                sections, requiredFields, sectionRules, fieldVisibilityRules, fieldConfigs
             );
             console.log("[PLB] Saving sections JSON:", sectionsJson);
 
@@ -1958,10 +2203,13 @@ export default function App() {
                 }))
             );
 
+            const validationRulesJson = JSON.stringify(validationRules);
+
             const columnValues = {
                 [plsCols.boardIdColId]:  String(selectedBoard.id),
                 [plsCols.sectionsColId]: sectionsJson,
-                ...(plsCols.childBoardsColId ? { [plsCols.childBoardsColId]: childBoardsJson } : {}),
+                ...(plsCols.childBoardsColId     ? { [plsCols.childBoardsColId]:     childBoardsJson      } : {}),
+                ...(plsCols.validationRulesColId ? { [plsCols.validationRulesColId]: validationRulesJson  } : {}),
             };
 
             if (layoutRecordId) {
@@ -2062,21 +2310,6 @@ export default function App() {
                 );
             })()}
 
-            {/* Field Validity Rules Modal */}
-            {valRulesModalColId && (() => {
-                const modalCol = findModalCol(valRulesModalColId);
-                if (!modalCol) return null;
-                return (
-                    <FieldValidityModal
-                        col={modalCol}
-                        allColumns={columns}
-                        rulesData={fieldValidityRules[valRulesModalColId] || { conditions: [], criteria: "" }}
-                        onSave={(rulesData) => saveValRulesForField(valRulesModalColId, rulesData)}
-                        onClose={closeValRulesModal}
-                    />
-                );
-            })()}
-
             {/* Field Config Modal (gear icon) */}
             {configModalColId && (() => {
                 const modalCol = findModalCol(configModalColId);
@@ -2090,6 +2323,16 @@ export default function App() {
                     />
                 );
             })()}
+
+            {/* Validation Rule Editor Modal */}
+            {valRuleModalData && (
+                <ValidationRuleModal
+                    rule={valRuleModalData}
+                    allColumns={columns}
+                    onSave={handleSaveValidationRule}
+                    onClose={() => setValRuleModalData(null)}
+                />
+            )}
 
             {/* Topbar */}
             <header className="plb-topbar">
@@ -2264,8 +2507,6 @@ export default function App() {
                                         sectionRulesData={sectionRules[sec.id] || null}
                                         fieldVisibilityRules={fieldVisibilityRules}
                                         onOpenVisRules={openVisRulesModal}
-                                        fieldValidityRules={fieldValidityRules}
-                                        onOpenValRules={openValRulesModal}
                                         fieldConfigs={fieldConfigs}
                                         onOpenConfig={openConfigModal}
                                     />
@@ -2328,6 +2569,16 @@ export default function App() {
                                     </div>
                                 )}
                             </div>
+
+                            {/* Validation Rules zone */}
+                            <ValidationRulesZone
+                                rules={validationRules}
+                                collapsed={valRulesCollapsed}
+                                onToggleCollapsed={() => setValRulesCollapsed(p => !p)}
+                                onAddRule={handleAddValidationRule}
+                                onDeleteRule={handleDeleteValidationRule}
+                                onEditRule={handleEditValidationRule}
+                            />
                         </div>
                     </div>
                 )}

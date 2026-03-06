@@ -101,26 +101,26 @@ const OP = (ids) => ALL_OPERATORS.filter((o) => ids.includes(o.id));
 export function getValidityOperatorsForType(colType) {
     switch (colType) {
         case "numbers":
-            return OP(["equals", "not_equals", ">", ">=", "<", "<="]);
+            return OP(["==", "!=", ">", ">=", "<", "<="]);
 
         case "date":
-            return OP(["equals", "not_equals", ">", ">=", "<", "<="]);
+            return OP(["==", "!=", ">", ">=", "<", "<="]);
 
         case "text":
         case "long_text":
-            return OP(["equals", "not_equals", "contains", "not_contains", "starts_with", "ends_with"]);
+            return OP(["==", "!=", "contains", "not_contains", "starts_with", "ends_with"]);
 
         case "email":
-            return OP(["equals", "not_equals", "ends_with"]);
+            return OP(["==", "!=", "ends_with"]);
 
         case "phone":
-            return OP(["equals", "not_equals"]);
+            return OP(["==", "!="]);
 
         case "link":
-            return OP(["equals", "not_equals", "starts_with", "contains"]);
+            return OP(["==", "!=", "starts_with", "contains"]);
 
         default:
-            return OP(["equals", "not_equals"]);
+            return OP(["==", "!="]);
     }
 }
 
@@ -196,8 +196,8 @@ export function evaluateValidityCondition(condition, fieldValues, columnsMap) {
     // equals+blank → field must be empty; not_equals+blank → field must not be empty.
     const ruleIsBlank = ruleValue === null || ruleValue === undefined || ruleValue === "";
     if (ruleIsBlank) {
-        if (operator === "equals")     return fieldIsEmpty;
-        if (operator === "not_equals") return !fieldIsEmpty;
+        if (operator === "==")     return fieldIsEmpty;
+        if (operator === "!=") return !fieldIsEmpty;
         // For operators that don't make sense with blank (>, contains, etc.),
         // treat blank rule value as not_equals (must not be empty).
         return !fieldIsEmpty;
@@ -225,7 +225,7 @@ export function evaluateValidityCondition(condition, fieldValues, columnsMap) {
     const str  = String(actual).toLowerCase();
     const comp = String(ruleValue).toLowerCase();
     switch (operator) {
-        case "equals":       return str === comp;
+        case "==":       return str === comp;
         case "not_equals":   return str !== comp;
         case "contains":     return str.includes(comp);
         case "not_contains": return !str.includes(comp);
