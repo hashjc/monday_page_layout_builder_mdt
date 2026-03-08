@@ -366,8 +366,16 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
     const [rules, setRules] = useState(() =>
         (rulesData?.rules || []).map((r, i) => ({ ...r, id: r.id || `rule_${Date.now()}_${i}` }))
     );
-    const [criteria, setCriteria] = useState(rulesData?.criteria || "ALL");
-
+    //const [criteria, setCriteria] = useState(rulesData?.criteria || "ALL");
+    const initCriteria = () => {
+        const saved = rulesData?.criteria || "";
+        const count = (rulesData?.rules || []).length;
+        if (saved === "ALL") return count >= 2 ? Array.from({length: count}, (_, i) => i + 1).join(" AND ") : "";
+        if (saved === "ANY") return count >= 2 ? Array.from({length: count}, (_, i) => i + 1).join(" OR ") : "";
+        return saved || "";
+    };
+    const [criteriaExpr, setCriteriaExpr] = useState(initCriteria);
+    const [criteriaErr,  setCriteriaErr]  = useState("");
     const addRule = () =>
         setRules((prev) => [...prev, { id: `rule_${Date.now()}`, field: "title", operator: "equals", value: "" }]);
 
@@ -378,13 +386,30 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
         setRules((prev) => prev.filter((r) => r.id !== id));
 
     const handleSave = () => {
-        const validRules = rules.filter((r) => r.value.trim() !== "");
-        onSave({ rules: validRules, criteria });
+        setCriteriaErr("");
+        const validRules = rules.filter((r) => r.field.trim() !== "");
+        if (validRules.length >= 2) {
+            const expr = criteriaExpr.trim();
+            if (!expr) { setCriteriaErr("Please enter a logic expression (e.g. 1 AND (2 OR 3))."); return; }
+            if (!/^[\d\sANDOR()]+$/i.test(expr)) { setCriteriaErr("Use condition numbers, AND, OR, and parentheses only."); return; }
+            const nums = expr.match(/\d+/g) || [];
+            for (const n of nums) {
+                const idx = parseInt(n, 10);
+                if (idx < 1 || idx > validRules.length) { setCriteriaErr(`Condition ${n} doesn't exist. Use numbers 1–${validRules.length}.`); return; }
+            }
+            let depth = 0;
+            for (const ch of expr) {
+                if (ch === "(") depth++;
+                if (ch === ")") depth--;
+                if (depth < 0) { setCriteriaErr("Unbalanced parentheses."); return; }
+            }
+            if (depth !== 0) { setCriteriaErr("Unbalanced parentheses."); return; }
+        }
+        const finalCriteria = validRules.length >= 2 ? criteriaExpr.trim().toUpperCase() : (validRules.length === 1 ? "1" : "");
+        onSave({ rules: validRules, criteria: finalCriteria });
     };
 
-    const criteriaLabel =
-        rules.length < 2 ? null : rules.map((_, i) => i + 1).join(criteria === "ALL" ? " AND " : " OR ");
-
+    
     return (
         <div className="srm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
             <div className="srm-modal">
@@ -437,19 +462,37 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
 
                     {rules.length >= 2 && (
                         <div className="srm-criteria">
-                            <span className="srm-criteria-label">Match:</span>
-                            <div className="srm-criteria-toggle">
-                                <button className={`srm-criteria-btn ${criteria === "ALL" ? "active" : ""}`} onClick={() => setCriteria("ALL")}>
-                                    ALL rules (AND)
+                            <span className="srm-criteria-label">Logic:</span>
+                            <div className="srm-criteria-toggle" style={{ marginBottom: "6px" }}>
+                                <button
+                                    className="srm-criteria-btn"
+                                    onClick={() => { setCriteriaExpr(rules.map((_, i) => i + 1).join(" AND ")); setCriteriaErr(""); }}
+                                >
+                                    ALL (AND)
                                 </button>
-                                <button className={`srm-criteria-btn ${criteria === "ANY" ? "active" : ""}`} onClick={() => setCriteria("ANY")}>
-                                    ANY rule (OR)
+                                <button
+                                    className="srm-criteria-btn"
+                                    onClick={() => { setCriteriaExpr(rules.map((_, i) => i + 1).join(" OR ")); setCriteriaErr(""); }}
+                                >
+                                    ANY (OR)
                                 </button>
                             </div>
-                            <div className="srm-criteria-preview">
-                                <span className="srm-criteria-preview-label">Logic:</span>
-                                <code>{criteriaLabel}</code>
+                            <input
+                                className="srm-input"
+                                type="text"
+                                value={criteriaExpr}
+                                placeholder="e.g. 1 AND (2 OR 3)"
+                                onChange={(e) => { setCriteriaExpr(e.target.value); setCriteriaErr(""); }}
+                                style={{ fontFamily: "var(--mono)", fontSize: "13px" }}
+                            />
+                            <div style={{ fontSize: "11px", color: "#676879", marginTop: "4px" }}>
+                                Available: <code style={{ background: "#fff", border: "1px solid #d0d4e4", borderRadius: "3px", padding: "1px 5px" }}>{rules.map((_, i) => i + 1).join(", ")}</code>
                             </div>
+                            {criteriaErr && (
+                                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "#fff4f6", border: "1px solid #fac0cb", borderRadius: "6px", color: "#b82020", fontSize: "12px", marginTop: "6px" }}>
+                                    <span>⚠️</span><span>{criteriaErr}</span>
+                                </div>
+                            )}
                         </div>
                     )}
                 </div>
@@ -631,19 +674,26 @@ function SectionRow({
     fieldVisibilityRules, onOpenVisRules,
     fieldConfigs, onOpenConfig,
 }) {
-    const [overSlot, setOverSlot] = useState(null);
+    const [overSlot, setOverSlot] = useState(null); // null | 0 | 1
+
     return (
         <div className="ls-row">
             {[0, 1].map((slotIdx) => {
                 const col = row[slotIdx];
+                const isOver = overSlot === slotIdx;
+
                 return (
                     <div
                         key={slotIdx}
-                        className={`ls-slot ${!col ? "empty" : ""} ${overSlot === slotIdx ? "drag-over" : ""}`}
+                        className={`ls-slot ${!col ? "empty" : ""} ${isOver ? "drag-over" : ""}`}
                         onDragOver={(e) => { e.preventDefault(); setOverSlot(slotIdx); }}
-                        onDragLeave={() => setOverSlot(null)}
+                        onDragLeave={(e) => {
+                            // Only clear if leaving the slot entirely
+                            if (!e.currentTarget.contains(e.relatedTarget)) setOverSlot(null);
+                        }}
                         onDrop={(e) => { setOverSlot(null); onDropInSlot(e, sectionId, rowIndex, slotIdx); }}
                     >
+                        {isOver && <div className="ls-slot-insert-indicator" />}
                         {col ? (
                             <LayoutField
                                 col={col}
@@ -714,7 +764,7 @@ function Section({
                 </div>
                 <div className="ls-header-actions">
                     <button className={`ls-btn ${hasRules ? "rules-active" : ""}`} onClick={() => onOpenRules(section.id)} title="Visibility rules">
-                        <Icon.Gear />
+                        <Icon.Eye />
                         {hasRules && <span className="ls-rules-badge">{sectionRulesData.rules.length}</span>}
                     </button>
                     <button className="ls-btn" onClick={() => setEditing(true)} title="Rename">✏️</button>
@@ -1226,6 +1276,7 @@ function ValidationRuleModal({ rule, allColumns, onSave, onClose }) {
     const [errorMsg,    setErrorMsg]    = useState(rule.error      || "");
     const [formula,     setFormula]     = useState(rule.expression || "");
     const [saveErr,     setSaveErr]     = useState("");
+    const [isActive,    setIsActive]    = useState(rule.active !== false);
     const [syntaxResult,   setSyntaxResult]   = useState(null);  // null | { valid, message }
     const [syntaxChecked,  setSyntaxChecked]  = useState(
         // Pre-populate as checked if editing an existing rule with an expression
@@ -1369,6 +1420,7 @@ function ValidationRuleModal({ rule, allColumns, onSave, onClose }) {
         const saved = {
             ...rule,
             name:    name.trim(),
+            active:  isActive,
             mode,
             expression,
             error:   errorMsg.trim(),
@@ -1408,10 +1460,21 @@ function ValidationRuleModal({ rule, allColumns, onSave, onClose }) {
                             className="vrm-input"
                             type="text"
                             value={name}
-                            placeholder="e.g. Fabric percentages must sum to 100"
+                            placeholder="e.g. Amount cannot be blank."
                             onChange={e => setName(e.target.value)}
                             autoFocus
                         />
+                    </div>
+                    <div className="vrm-field-group">
+                        <label className="vrm-active-label" title="Uncheck to disable this rule without deleting it">
+                            <input
+                                type="checkbox"
+                                checked={isActive}
+                                onChange={e => setIsActive(e.target.checked)}
+                                className="vrm-active-checkbox"
+                            />
+                            <span>Active</span>
+                        </label>
                     </div>
 
                     {/* Mode toggle */}
@@ -1632,7 +1695,7 @@ function ValidationRuleModal({ rule, allColumns, onSave, onClose }) {
                             className="vrm-input vrm-input-error"
                             type="text"
                             value={errorMsg}
-                            placeholder="e.g. Fabric percentages must add up to 100%"
+                            placeholder="e.g. Amount must be filled before submission."
                             onChange={e => setErrorMsg(e.target.value)}
                         />
                     </div>
@@ -1693,9 +1756,13 @@ function ValidationRulesZone({ rules, collapsed, onToggleCollapsed, onAddRule, o
                                     <div className="vrz-card-left">
                                         <div className="vrz-card-top">
                                             <span className="vrz-card-name">{rule.name || "Unnamed rule"}</span>
-                                            <span className={`vrz-card-mode ${rule.mode === "formula" ? "formula" : "simple"}`}>
-                                                {rule.mode === "formula" ? "Formula" : "Simple"}
-                                            </span>
+                                            <input
+                                                type="checkbox"
+                                                checked={rule.active !== false}
+                                                readOnly
+                                                title={rule.active !== false ? "Active" : "Inactive"}
+                                                style={{ width: "14px", height: "14px", accentColor: "var(--blue)", cursor: "default", flexShrink: 0 }}
+                                            />
                                         </div>
                                         <div className="vrz-card-error">⚠ {rule.error || "No error message set"}</div>
                                         {rule.expression && (
@@ -1742,6 +1809,7 @@ export default function App() {
     const [saving, setSaving]     = useState(false);
     const [saveMsg, setSaveMsg]   = useState(null);
     const [layoutRecordId, setLayoutRecordId] = useState(null);
+    const [layoutItemName, setLayoutItemName] = useState("");
 
     const [sectionRules, setSectionRules]             = useState({});
     const [rulesModalSectionId, setRulesModalSectionId] = useState(null);
@@ -1805,15 +1873,15 @@ export default function App() {
         return plsColsRef.current;
     };
 
-    const fetchExistingLayout = async (boardId, columnsMap) => {
+    const fetchExistingLayout = async (boardId, columnsMap, board) => {
         setLayoutLoading(true);
         try {
             const plsCols = await ensurePLSCols();
             const matchingRecords = await getPageLayoutSectionRecords(boardId);
-
             if (matchingRecords.length === 0) {
                 setLayoutRecordId(null);
-                setSections([makeSection("Board Information", 1)]);
+                setSections([makeSection(`${board?.name || "Board"} Information`, 1)]);
+                setLayoutItemName("");
                 setPlacedColIds(new Set());
                 setRequiredFields(new Set());
                 setSectionRules({});
@@ -1829,6 +1897,7 @@ export default function App() {
             }
             const record = matchingRecords[0];
             setLayoutRecordId(record.id);
+            setLayoutItemName(record.name || "");
 
             const sectionsCV = record.column_values.find((cv) => cv.id === plsCols.sectionsColId);
             let rawJson = sectionsCV?.text?.trim() || "";
@@ -1842,7 +1911,7 @@ export default function App() {
             const parsed = deserialiseSectionsJSON(rawJson, columnsMap);
 
             if (!parsed) {
-                setSections([makeSection("Board Information", 1)]);
+                setSections([makeSection(`${board?.name || "Board"} Information`, 1)]);
                 setPlacedColIds(new Set());
                 setRequiredFields(new Set());
                 setSectionRules({});
@@ -1907,7 +1976,8 @@ export default function App() {
 
         } catch (err) {
             console.error("[PLB] fetchExistingLayout error:", err);
-            setSections([makeSection("Board Information", 1)]);
+            //setSections([makeSection("Board Information", 1)]);
+            setSections([makeSection(`${selectedBoard?.name || "Board"} Information`, 1)]);
             setSaveMsg({ type: "error", text: "Could not load existing layout: " + err.message });
         } finally {
             setLayoutLoading(false);
@@ -1930,6 +2000,7 @@ export default function App() {
         setConfigModalColId(null);
         setLayoutRecordId(null);
         setSaveMsg(null);
+        setLayoutItemName("");
         setPlacedChildBoards([]);
         setAllChildBoards([]);
         setColPickerBoardKey(null);
@@ -1941,7 +2012,7 @@ export default function App() {
 
         setColumns(res.columns);
         const columnsMap = Object.fromEntries(res.columns.map((c) => [c.id, c]));
-        await fetchExistingLayout(board.id, columnsMap);
+        await fetchExistingLayout(board.id, columnsMap, board);
 
         setChildBoardsLoading(true);
         try {
@@ -1972,33 +2043,48 @@ export default function App() {
         dragRef.current = null;
 
         setSections((prev) => {
-            const next   = prev.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }));
+            const next = prev.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }));
             const target = next.find((s) => s.id === toSectionId);
             if (!target) return prev;
-            const destCol = target.rows[toRow][toSlot];
-            if (!fromPalette) {
-                let src = null;
-                for (const s of next)
-                    for (let ri = 0; ri < s.rows.length; ri++)
-                        for (let si = 0; si < 2; si++)
-                            if (s.rows[ri][si]?.id === col.id) src = { s, ri, si };
-                if (!src) return prev;
-                src.s.rows[src.ri][src.si] = destCol;
-                target.rows[toRow][toSlot] = col;
-            } else {
-                if (placedColIds.has(col.id)) return prev;
-                if (destCol) return prev;
-                target.rows[toRow][toSlot] = col;
+
+            // Build a flat list of all placed columns in this section (nulls excluded)
+            const flat = target.rows.flatMap((r) => r.filter(Boolean));
+
+            // If dragging from palette and already placed, abort
+            if (fromPalette && placedColIds.has(col.id)) return prev;
+
+            // Remove the col from flat if it's already in this section (field move)
+            const withoutCol = flat.filter((c) => c.id !== col.id);
+
+            // Compute the insertion index from (toRow, toSlot)
+            const insertIdx = toRow * 2 + toSlot;
+            // Clamp to valid range
+            const clampedIdx = Math.min(insertIdx, withoutCol.length);
+
+            // Splice col in at the insertion point
+            withoutCol.splice(clampedIdx, 0, col);
+
+            // Rebuild rows from the new flat list
+            const newRows = [];
+            for (let i = 0; i < withoutCol.length; i += 2) {
+                newRows.push([withoutCol[i] || null, withoutCol[i + 1] || null]);
+            }
+            // Always ensure a trailing empty row
+            const last = newRows[newRows.length - 1];
+            if (!last || last[0] !== null || last[1] !== null) {
+                newRows.push([null, null]);
+            }
+
+            target.rows = newRows;
+
+            // Update placedColIds if this was a palette drop
+            if (fromPalette) {
                 setPlacedColIds((p) => new Set([...p, col.id]));
             }
-            const thisRow = target.rows[toRow];
-            const rowFull = thisRow[0] !== null && thisRow[1] !== null;
-            const isLast  = toRow === target.rows.length - 1;
-            if (rowFull && isLast) target.rows.push([null, null]);
+
             return next;
         });
     };
-
     const handleRemoveField = (sectionId, rowIdx, slotIdx) => {
         setSections((prev) => {
             const next = prev.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }));
@@ -2195,8 +2281,7 @@ export default function App() {
             const sectionsJson = serialiseSectionsJSON(
                 sections, requiredFields, sectionRules, fieldVisibilityRules, fieldConfigs
             );
-            console.log("[PLB] Saving sections JSON:", sectionsJson);
-
+            
             const childBoardsJson = JSON.stringify(
                 placedChildBoards.map(({ boardId, label, columnId, columns }) => ({
                     boardId, label, columnId, columns: columns || [],
@@ -2242,8 +2327,8 @@ export default function App() {
                 `;
                 const res = await monday.api(mutation, {
                     variables: {
-                        boardId:      String(PAGELAYOUTSECTION_BOARDID),
-                        itemName:     selectedBoard.name,
+                        boardId: String(PAGELAYOUTSECTION_BOARDID),
+                        itemName: (layoutItemName.trim() || `${selectedBoard.name} Layout`),
                         columnValues: JSON.stringify(columnValues),
                     },
                 });
@@ -2485,8 +2570,21 @@ export default function App() {
                         {/* Canvas */}
                         <div className="plb-canvas">
                             <div className="canvas-hdr">
-                                <div>
-                                    <h2 className="canvas-title">Layout</h2>
+                                <div style={{ flex: 1 }}>
+                                    {layoutRecordId ? (
+                                        <h2 className="canvas-title">{layoutItemName || `${selectedBoard?.name} Layout`}</h2>
+                                    ) : (
+                                        <div className="canvas-title-edit-wrap">
+                                            <input
+                                                className="canvas-title-input"
+                                                type="text"
+                                                value={layoutItemName}
+                                                placeholder={`${selectedBoard?.name} Layout`}
+                                                onChange={(e) => setLayoutItemName(e.target.value)}
+                                                maxLength={80}
+                                            />
+                                        </div>
+                                    )}
                                     <p className="canvas-hint">Drag columns from above · Double-click section names to rename · ⭐ toggles required</p>
                                 </div>
                             </div>

@@ -43,6 +43,9 @@
 // ─── Re-export shared operator infrastructure ─────────────────────────────────
 // The full ALL_OPERATORS list and type sets live in fieldVisibilityConfig.js.
 // We re-export what the modal UI needs so it only has to import from one place.
+
+import { ALL_OPERATORS } from "./fieldVisibilityConfig";
+
 export {
     operatorNeedsValue,
     getValueInputType,

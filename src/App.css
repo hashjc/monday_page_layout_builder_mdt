@@ -784,6 +784,7 @@ body {
     border-color: var(--blue);
     background: var(--blue-light);
     box-shadow: 0 0 0 2px rgba(0,115,234,0.15);
+    position: relative;
 }
 
 .ls-slot-hint {
@@ -2076,3 +2077,21 @@ body {
 .vrm-syntax-result.valid   { background: #e6f7ee; border: 1px solid #a3d9b5; color: #1a7a3a; }
 .vrm-syntax-result.invalid { background: #fff4f6; border: 1px solid #fac0cb; color: #b82020; }
 
+.vrm-active-label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    cursor: pointer;
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text);
+    user-select: none;
+}
+
+.vrm-active-checkbox {
+    width: 15px;
+    height: 15px;
+    accent-color: var(--blue);
+    cursor: pointer;
+    flex-shrink: 0;
+}
