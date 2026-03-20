@@ -146,6 +146,13 @@ const Icon = {
             <path d="M2 2L12 12M12 2L2 12" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" />
         </svg>
     ),
+    Wrench: () => (
+        <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
+            <path d="M8.5 2a3 3 0 00-2.9 3.8L1.5 9.9a1.2 1.2 0 001.6 1.6l4.1-4.1A3 3 0 108.5 2z"
+                stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            <circle cx="8.5" cy="4" r=".6" fill="currentColor"/>
+        </svg>
+    ),
 
 };
 
@@ -193,7 +200,7 @@ const MAX_VALUES_TYPES = new Set(["board_relation", "people"]);
 const MAX_FILES_TYPES  = new Set(["file"]);
 
 /** Convert a section's rows + requiredSet → flat fields array (for JSON storage) */
-const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldConfigs = {}) =>
+const rowsToFields = (rows, requiredSet, readOnlySet = new Set(), fieldVisRules = {}, fieldConfigs = {}) =>
     rows.flatMap((row) =>
         row.filter(Boolean).map((col) => {
             const cfg = fieldConfigs[col.id] || {};
@@ -201,7 +208,8 @@ const rowsToFields = (rows, requiredSet, fieldVisRules = {}, fieldConfigs = {}) 
                 id: `field_${col.id}`,
                 columnId: col.id,
                 type: col.type,
-                isRequired: requiredSet.has(col.id) ? "true" : "false",
+                isRequired: requiredSet.has(col.id)  ? "true" : "false",
+                readOnly:   readOnlySet.has(col.id)  ? "true" : "false",
             };
             // maxValues — default 1000 for relation/people types
             if (MAX_VALUES_TYPES.has(col.type)) {
@@ -243,10 +251,10 @@ const fieldsToRows = (fields, columnsMap) => {
 // JSON SERIALISATION / DESERIALISATION
 // ─────────────────────────────────────────────────────────────────────────────
 
-function serialiseSectionsJSON(sections, requiredFields, sectionRules, fieldVisRules = {}, fieldConfigs = {}) {
+function serialiseSectionsJSON(sections, requiredFields, readOnlyFields, sectionRules, fieldVisRules = {}, fieldConfigs = {}) {
     const payload = sections.map((sec, idx) => {
-        const fields = rowsToFields(sec.rows, requiredFields, fieldVisRules, fieldConfigs);
-
+        const fields = rowsToFields(sec.rows, requiredFields, readOnlyFields, fieldVisRules, fieldConfigs);
+        
         const rawRules = sectionRules[sec.id] || { rules: [], criteria: "ALL" };
         const conditions = (rawRules.rules || []).map((r, i) => ({
             id: r.id || `rule_${sec.id}_${i}`,
@@ -272,7 +280,6 @@ function serialiseSectionsJSON(sections, requiredFields, sectionRules, fieldVisR
 
 function deserialiseSectionsJSON(raw, columnsMap) {
     if (!raw || !raw.trim()) return null;
-
     let parsed;
     try {
         parsed = JSON.parse(raw);
@@ -294,6 +301,7 @@ function deserialiseSectionsJSON(raw, columnsMap) {
     const rulesMap    = {};
     const visRulesMap = {};
     const fieldConfigsMap = {}; // { [columnId]: { helptext?, maxValues?, maxFiles? } }
+    const readOnly = new Set();
 
     const sections = sectionsData
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
@@ -312,6 +320,8 @@ function deserialiseSectionsJSON(raw, columnsMap) {
                     placed.add(col.id);
                     const fieldDef = fields.find((f) => f.columnId === col.id);
                     if (fieldDef?.isRequired === "true") required.add(col.id);
+                    if (fieldDef?.readOnly === "true") readOnly.add(col.id);
+
                     // Restore field config (helptext, maxValues, maxFiles)
                     const cfg = {};
                     if (fieldDef?.helptext)  cfg.helptext  = fieldDef.helptext;
@@ -352,6 +362,7 @@ function deserialiseSectionsJSON(raw, columnsMap) {
     return {
         sections,
         requiredFields: required,
+        readOnlyFields: readOnly,
         placedColIds:   placed,
         sectionRules:   rulesMap,
         fieldVisibilityRules: visRulesMap,
@@ -609,14 +620,20 @@ function ColumnChip({ col, onDragStart }) {
 // ─────────────────────────────────────────────────────────────────────────────
 // LAYOUT FIELD
 // ─────────────────────────────────────────────────────────────────────────────
-function LayoutField({ col, isRequired, hasVisRules, fieldConfig, onRemove, onDragStart, onToggleRequired, onOpenVisRules, onOpenConfig }) {
+function LayoutField({ col, isRequired, isReadOnly, hasVisRules, fieldConfig, onRemove, onDragStart, onOpenOptions, onOpenVisRules, onOpenConfig }) {
     const meta = getTypeMeta(col.type);
     const stopDrag = (e) => e.stopPropagation();
     const hasConfig = !!(fieldConfig?.helptext || fieldConfig?.maxValues !== undefined || fieldConfig?.maxFiles !== undefined);
 
+    // Badge label shown on the field card
+    const optionBadge = isRequired ? "Required" : isReadOnly ? "Read-Only" : null;
+    const badgeStyle  = isReadOnly
+        ? { borderColor: "#9d66ab", color: "#7e3b8a", background: "#f8f2fb" }
+        : {};
+
     return (
         <div
-            className={`lfield ${isRequired ? "required" : ""} ${hasVisRules ? "has-vis-rules" : ""} ${hasConfig ? "has-config" : ""}`}
+            className={`lfield ${isRequired ? "required" : ""} ${isReadOnly ? "readonly" : ""} ${hasVisRules ? "has-vis-rules" : ""} ${hasConfig ? "has-config" : ""}`}
             draggable
             onDragStart={(e) => onDragStart(e, col)}
         >
@@ -624,16 +641,19 @@ function LayoutField({ col, isRequired, hasVisRules, fieldConfig, onRemove, onDr
             <span className="lfield-dot" style={{ background: meta.color }} />
             <span className="lfield-name">{col.title}</span>
             <span className="lfield-type">{meta.label}</span>
+
+            {/* Options badge — shows current state, click to edit */}
             <button
-                className={`lfield-req ${isRequired ? "on" : ""}`}
+                className={`lfield-req ${(isRequired || isReadOnly) ? "on" : ""}`}
+                style={badgeStyle}
                 onMouseDown={stopDrag}
-                onClick={() => onToggleRequired(col.id)}
-                title={isRequired ? "Mark optional" : "Mark required"}
+                onClick={() => onOpenOptions(col)}
+                title="Field options (required / read-only)"
             >
-                <Icon.Star />
-                <span>{isRequired ? "Required" : "Optional"}</span>
+                <Icon.Wrench />
+                <span>{optionBadge || "Options"}</span>
             </button>
-            {/* Field config gear — help text, maxValues, maxFiles */}
+
             <button
                 className={`lfield-config ${hasConfig ? "active" : ""}`}
                 onMouseDown={stopDrag}
@@ -670,27 +690,22 @@ function LayoutField({ col, isRequired, hasVisRules, fieldConfig, onRemove, onDr
 function SectionRow({
     row, rowIndex, sectionId,
     onRemoveField, onDragStartField, onDropInSlot,
-    onToggleRequired, requiredFields,
+    onOpenOptions, requiredFields, readOnlyFields,   // ← updated
     fieldVisibilityRules, onOpenVisRules,
     fieldConfigs, onOpenConfig,
 }) {
-    const [overSlot, setOverSlot] = useState(null); // null | 0 | 1
-
+    const [overSlot, setOverSlot] = useState(null);
     return (
         <div className="ls-row">
             {[0, 1].map((slotIdx) => {
-                const col = row[slotIdx];
+                const col    = row[slotIdx];
                 const isOver = overSlot === slotIdx;
-
                 return (
                     <div
                         key={slotIdx}
                         className={`ls-slot ${!col ? "empty" : ""} ${isOver ? "drag-over" : ""}`}
                         onDragOver={(e) => { e.preventDefault(); setOverSlot(slotIdx); }}
-                        onDragLeave={(e) => {
-                            // Only clear if leaving the slot entirely
-                            if (!e.currentTarget.contains(e.relatedTarget)) setOverSlot(null);
-                        }}
+                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOverSlot(null); }}
                         onDrop={(e) => { setOverSlot(null); onDropInSlot(e, sectionId, rowIndex, slotIdx); }}
                     >
                         {isOver && <div className="ls-slot-insert-indicator" />}
@@ -698,11 +713,12 @@ function SectionRow({
                             <LayoutField
                                 col={col}
                                 isRequired={requiredFields.has(col.id)}
+                                isReadOnly={readOnlyFields.has(col.id)}   // ← new
                                 hasVisRules={!!(fieldVisibilityRules?.[col.id]?.conditions?.length)}
                                 fieldConfig={fieldConfigs?.[col.id] || null}
                                 onRemove={(id) => onRemoveField(sectionId, rowIndex, slotIdx, id)}
                                 onDragStart={onDragStartField}
-                                onToggleRequired={onToggleRequired}
+                                onOpenOptions={onOpenOptions}             // ← new
                                 onOpenVisRules={onOpenVisRules}
                                 onOpenConfig={onOpenConfig}
                             />
@@ -721,7 +737,8 @@ function SectionRow({
 // ─────────────────────────────────────────────────────────────────────────────
 function Section({
     section, onAddRow, onRemoveField, onRemoveSection, onRenameSection,
-    onDragStartField, onDropInSlot, onToggleRequired, requiredFields,
+    onDragStartField, onDropInSlot,
+    onOpenOptions, requiredFields, readOnlyFields,   // ← updated
     onOpenRules, sectionRulesData,
     fieldVisibilityRules, onOpenVisRules,
     fieldConfigs, onOpenConfig,
@@ -784,8 +801,9 @@ function Section({
                         onRemoveField={onRemoveField}
                         onDragStartField={onDragStartField}
                         onDropInSlot={onDropInSlot}
-                        onToggleRequired={onToggleRequired}
+                        onOpenOptions={onOpenOptions}
                         requiredFields={requiredFields}
+                        readOnlyFields={readOnlyFields}
                         fieldVisibilityRules={fieldVisibilityRules}
                         onOpenVisRules={onOpenVisRules}
                         fieldConfigs={fieldConfigs}
@@ -799,6 +817,81 @@ function Section({
                     Drag fields from above to get started
                 </div>
             )}
+        </div>
+    );
+}
+
+function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
+    const [reqChecked, setReqChecked] = useState(isRequired);
+    const [roChecked,  setRoChecked]  = useState(isReadOnly);
+
+    const handleRequired = () => { setReqChecked(true);  setRoChecked(false); };
+    const handleReadOnly = () => { setRoChecked(true);   setReqChecked(false); };
+    const handleUncheck  = (which) => {
+        if (which === "req") setReqChecked(false);
+        else setRoChecked(false);
+    };
+
+    const colMeta = getTypeMeta(col.type);
+
+    return (
+        <div className="srm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
+            <div className="srm-modal" style={{ maxWidth: "360px" }}>
+                <div className="srm-header">
+                    <div className="srm-header-left">
+                        <span className="srm-header-icon"><Icon.Wrench /></span>
+                        <div>
+                            <h2 className="srm-title">Field Options</h2>
+                            <p className="srm-subtitle">
+                                <span style={{ display: "inline-flex", alignItems: "center", gap: "5px" }}>
+                                    <span style={{ width: 7, height: 7, borderRadius: "50%", background: colMeta.color, display: "inline-block" }} />
+                                    {col.title}
+                                </span>
+                            </p>
+                        </div>
+                    </div>
+                    <button className="srm-close" onClick={onClose}><Icon.Close /></button>
+                </div>
+
+                <div className="srm-body" style={{ gap: "10px" }}>
+                    <p className="srm-desc">Only one option can be active at a time.</p>
+
+                    <label className="fom-option-row">
+                        <input
+                            type="checkbox"
+                            checked={reqChecked}
+                            onChange={() => reqChecked ? handleUncheck("req") : handleRequired()}
+                            className="fom-checkbox"
+                        />
+                        <div className="fom-option-info">
+                            <span className="fom-option-label">Required</span>
+                            <span className="fom-option-hint">User must fill this field before submitting</span>
+                        </div>
+                        {reqChecked && <span className="fom-active-badge">Active</span>}
+                    </label>
+
+                    <label className="fom-option-row">
+                        <input
+                            type="checkbox"
+                            checked={roChecked}
+                            onChange={() => roChecked ? handleUncheck("ro") : handleReadOnly()}
+                            className="fom-checkbox"
+                        />
+                        <div className="fom-option-info">
+                            <span className="fom-option-label">Read-Only</span>
+                            <span className="fom-option-hint">Field is visible but cannot be edited</span>
+                        </div>
+                        {roChecked && <span className="fom-active-badge fom-active-badge--ro">Active</span>}
+                    </label>
+                </div>
+
+                <div className="srm-footer">
+                    <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="srm-btn-primary" onClick={() => onSave({ isRequired: reqChecked, isReadOnly: roChecked })}>
+                        <Icon.Check /> Save
+                    </button>
+                </div>
+            </div>
         </div>
     );
 }
@@ -1836,6 +1929,10 @@ export default function App() {
     const [childBoardsCollapsed, setChildBoardsCollapsed] = useState(false);
     const childDragRef = useRef(null);
 
+    const [readOnlyFields, setReadOnlyFields]         = useState(new Set());
+    const [optionsModalColId, setOptionsModalColId]   = useState(null);
+
+
     const dragRef    = useRef(null);
     const plsColsRef = useRef(null);
 
@@ -1923,6 +2020,7 @@ export default function App() {
             }
 
             setSections(parsed.sections);
+            setReadOnlyFields(parsed.readOnlyFields || new Set());
             setPlacedColIds(parsed.placedColIds);
             setRequiredFields(parsed.requiredFields);
             setSectionRules(parsed.sectionRules);
@@ -2005,6 +2103,7 @@ export default function App() {
         setAllChildBoards([]);
         setColPickerBoardKey(null);
         setColPickerData({});
+        setReadOnlyFields(new Set());
 
         const res = await getBoardColumns(board.id);
         setColumnsLoading(false);
@@ -2085,6 +2184,21 @@ export default function App() {
             return next;
         });
     };
+
+    const handleSaveFieldOptions = (colId, { isRequired, isReadOnly }) => {
+        setRequiredFields((prev) => {
+            const n = new Set(prev);
+            isRequired ? n.add(colId) : n.delete(colId);
+            return n;
+        });
+        setReadOnlyFields((prev) => {
+            const n = new Set(prev);
+            isReadOnly ? n.add(colId) : n.delete(colId);
+            return n;
+        });
+        setOptionsModalColId(null);
+    };
+
     const handleRemoveField = (sectionId, rowIdx, slotIdx) => {
         setSections((prev) => {
             const next = prev.map((s) => ({ ...s, rows: s.rows.map((r) => [...r]) }));
@@ -2099,6 +2213,8 @@ export default function App() {
                 setFieldConfigs((p)         => { const n = { ...p }; delete n[removed.id]; return n; });
                 setVisRulesModalColId((cur) => (cur === removed.id ? null : cur));
                 setConfigModalColId((cur)   => (cur === removed.id ? null : cur));
+                setReadOnlyFields((p) => { const n = new Set(p); n.delete(removed.id); return n; });
+
             }
             while (sec.rows.length > 1) {
                 const last       = sec.rows[sec.rows.length - 1];
@@ -2128,6 +2244,8 @@ export default function App() {
             const sec = prev.find((s) => s.id === sectionId);
             if (sec) {
                 const freed = sec.rows.flatMap((r) => r.filter(Boolean).map((c) => c.id));
+                setReadOnlyFields((p) => { const n = new Set(p); freed.forEach((id) => n.delete(id)); return n; });
+
                 setPlacedColIds((p)     => { const n = new Set(p); freed.forEach((id) => n.delete(id)); return n; });
                 setRequiredFields((p)   => { const n = new Set(p); freed.forEach((id) => n.delete(id)); return n; });
             }
@@ -2279,7 +2397,7 @@ export default function App() {
             const plsCols = await ensurePLSCols();
 
             const sectionsJson = serialiseSectionsJSON(
-                sections, requiredFields, sectionRules, fieldVisibilityRules, fieldConfigs
+                sections, requiredFields, readOnlyFields, sectionRules, fieldVisibilityRules, fieldConfigs
             );
             
             const childBoardsJson = JSON.stringify(
@@ -2405,6 +2523,20 @@ export default function App() {
                         configData={fieldConfigs[configModalColId] || null}
                         onSave={(cfg) => saveFieldConfig(configModalColId, cfg)}
                         onClose={closeConfigModal}
+                    />
+                );
+            })()}
+            {/* Field options */}
+            {optionsModalColId && (() => {
+                const modalCol = findModalCol(optionsModalColId);
+                if (!modalCol) return null;
+                return (
+                    <FieldOptionsModal
+                        col={modalCol}
+                        isRequired={requiredFields.has(optionsModalColId)}
+                        isReadOnly={readOnlyFields.has(optionsModalColId)}
+                        onSave={(opts) => handleSaveFieldOptions(optionsModalColId, opts)}
+                        onClose={() => setOptionsModalColId(null)}
                     />
                 );
             })()}
@@ -2599,7 +2731,8 @@ export default function App() {
                                         onRenameSection={handleRenameSection}
                                         onDragStartField={handleFieldDragStart}
                                         onDropInSlot={handleDropInSlot}
-                                        onToggleRequired={handleToggleRequired}
+                                        onOpenOptions={(col) => setOptionsModalColId(col.id)}
+                                        readOnlyFields={readOnlyFields}
                                         requiredFields={requiredFields}
                                         onOpenRules={openRulesModal}
                                         sectionRulesData={sectionRules[sec.id] || null}

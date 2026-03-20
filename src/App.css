@@ -796,6 +796,49 @@ body {
     color: var(--text-ph);
 }
 
+/* ── Field Options Modal ── */
+.fom-option-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 11px 14px;
+    background: #f8f9fc;
+    border: 1px solid #e5e7ef;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: border-color 0.15s, background 0.15s;
+    user-select: none;
+}
+.fom-option-row:hover { border-color: #c5cade; background: #f2f4fb; }
+
+.fom-checkbox {
+    width: 15px; height: 15px;
+    accent-color: var(--blue);
+    cursor: pointer;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.fom-option-info { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.fom-option-label { font-size: 13px; font-weight: 600; color: #323338; }
+.fom-option-hint  { font-size: 11px; color: #676879; line-height: 1.4; }
+
+.fom-active-badge {
+    font-size: 10px; font-weight: 700; text-transform: uppercase;
+    background: var(--blue-light); color: var(--blue);
+    border: 1px solid var(--blue-mid); border-radius: 8px;
+    padding: 2px 7px; white-space: nowrap; flex-shrink: 0;
+}
+.fom-active-badge--ro {
+    background: #f8f2fb; color: #7e3b8a; border-color: #d8bfe0;
+}
+
+/* Read-only field card accent */
+.lfield.readonly {
+    border-left: 3px solid #9d66ab;
+    background: #fdf9ff;
+}
+
 /* ─── Layout Field ─── */
 .lfield {
     display: flex;
