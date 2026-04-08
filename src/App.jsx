@@ -19,26 +19,24 @@ import {
     buildExpressionFromSimpleRows,
     validateExpression,
 } from "./formValidationConfig";
-
+import { getLookupOperatorsForType, lookupOperatorNeedsValue, makeLookupCondId, validateLookupCriteria } from "./lookupFiltersConfig";
 import "./App.css";
 
 const monday = mondaySdk();
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const PLS_COL_TITLE_BOARDID      = PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID;
-const PLS_COL_TITLE_SECTIONS     = PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS;
+const PLS_COL_TITLE_BOARDID = PAGELAYOUTSECTION_COLUMN_TITLE_BOARDID;
+const PLS_COL_TITLE_SECTIONS = PAGELAYOUTSECTION_COLUMN_TITLE_SECTIONS;
 const PLS_COL_TITLE_CHILD_BOARDS = PAGELAYOUT_COL_TITLE_CHILD_BOARDS;
-const PLS_COL_TITLE_VAL_RULES    = PAGELAYOUTSECTION_COLUMN_TITLE_VALIDATION_RULES;
+const PLS_COL_TITLE_VAL_RULES = PAGELAYOUTSECTION_COLUMN_TITLE_VALIDATION_RULES;
 
 // ─── Section rules UI constants ────────────────────────────────────────────────
-const USER_PROFILE_FIELDS = [
-    { id: "profile", label: "Profile", placeholder: "e.g. Sales" }
-];
+const USER_PROFILE_FIELDS = [{ id: "profile", label: "Profile", placeholder: "e.g. Sales" }];
 
 const RULE_OPERATORS = [
-    { id: "equals",       label: "equals" },
-    { id: "not_equals",   label: "not equals" },
-    { id: "contains",     label: "contains" },
+    { id: "equals", label: "equals" },
+    { id: "not_equals", label: "not equals" },
+    { id: "contains", label: "contains" },
     { id: "not_contains", label: "not contains" },
 ];
 
@@ -114,15 +112,25 @@ const Icon = {
     ),
     Eye: () => (
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <path d="M7.5 3C4.5 3 2 5.5 1 7.5c1 2 3.5 4.5 6.5 4.5s5.5-2.5 6.5-4.5c-1-2-3.5-4.5-6.5-4.5z"
-                stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            <circle cx="7.5" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.3"/>
+            <path
+                d="M7.5 3C4.5 3 2 5.5 1 7.5c1 2 3.5 4.5 6.5 4.5s5.5-2.5 6.5-4.5c-1-2-3.5-4.5-6.5-4.5z"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <circle cx="7.5" cy="7.5" r="2" stroke="currentColor" strokeWidth="1.3" />
         </svg>
     ),
     EyeOff: () => (
         <svg width="15" height="15" viewBox="0 0 15 15" fill="none">
-            <path d="M1 1l13 13M6.3 6.4a2 2 0 002.7 2.6M3.7 3.8C2.2 4.9 1 6.2 1 7.5c1 2 3.5 4.5 6.5 4.5 1.2 0 2.3-.3 3.3-.9M5.5 2.6C6.1 2.3 6.8 2 7.5 2c3 0 5.5 2.5 6.5 4.5-.5 1-1.3 2.1-2.3 3"
-                stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
+            <path
+                d="M1 1l13 13M6.3 6.4a2 2 0 002.7 2.6M3.7 3.8C2.2 4.9 1 6.2 1 7.5c1 2 3.5 4.5 6.5 4.5 1.2 0 2.3-.3 3.3-.9M5.5 2.6C6.1 2.3 6.8 2 7.5 2c3 0 5.5 2.5 6.5 4.5-.5 1-1.3 2.1-2.3 3"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
         </svg>
     ),
     Star: () => (
@@ -148,37 +156,41 @@ const Icon = {
     ),
     Wrench: () => (
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
-            <path d="M8.5 2a3 3 0 00-2.9 3.8L1.5 9.9a1.2 1.2 0 001.6 1.6l4.1-4.1A3 3 0 108.5 2z"
-                stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round"/>
-            <circle cx="8.5" cy="4" r=".6" fill="currentColor"/>
+            <path
+                d="M8.5 2a3 3 0 00-2.9 3.8L1.5 9.9a1.2 1.2 0 001.6 1.6l4.1-4.1A3 3 0 108.5 2z"
+                stroke="currentColor"
+                strokeWidth="1.3"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+            <circle cx="8.5" cy="4" r=".6" fill="currentColor" />
         </svg>
     ),
-
 };
 
 // ─── Column type metadata ─────────────────────────────────────────────────────
 const COL_TYPE_META = {
-    name:           { color: "#0073ea", label: "Name" },
-    text:           { color: "#6c8ebf", label: "Text" },
-    long_text:      { color: "#6c8ebf", label: "Long Text" },
-    numbers:        { color: "#fdab3d", label: "Numbers" },
-    status:         { color: "#00c875", label: "Status" },
-    dropdown:       { color: "#9d99b9", label: "Dropdown" },
-    date:           { color: "#7e3b8a", label: "Date" },
-    people:         { color: "#ff7575", label: "People" },
+    name: { color: "#0073ea", label: "Name" },
+    text: { color: "#6c8ebf", label: "Text" },
+    long_text: { color: "#6c8ebf", label: "Long Text" },
+    numbers: { color: "#fdab3d", label: "Numbers" },
+    status: { color: "#00c875", label: "Status" },
+    dropdown: { color: "#9d99b9", label: "Dropdown" },
+    date: { color: "#7e3b8a", label: "Date" },
+    people: { color: "#ff7575", label: "People" },
     board_relation: { color: "#0073ea", label: "Connect Boards" },
-    checkbox:       { color: "#00c875", label: "Checkbox" },
-    email:          { color: "#fdab3d", label: "Email" },
-    phone:          { color: "#fdab3d", label: "Phone" },
-    formula:        { color: "#9d99b9", label: "Formula" },
-    mirror:         { color: "#9d99b9", label: "Mirror" },
-    doc:            { color: "#6c8ebf", label: "Doc" },
-    link:           { color: "#0073ea", label: "Link" },
-    rating:         { color: "#fdab3d", label: "Rating" },
-    file:          { color: "#6c8ebf", label: "Files" },
-    tags:           { color: "#333",    label: "Tags" },
-    timeline:       { color: "#0073ea", label: "Timeline" },
-    dependency:     { color: "#7e3b8a", label: "Dependency" },
+    checkbox: { color: "#00c875", label: "Checkbox" },
+    email: { color: "#fdab3d", label: "Email" },
+    phone: { color: "#fdab3d", label: "Phone" },
+    formula: { color: "#9d99b9", label: "Formula" },
+    mirror: { color: "#9d99b9", label: "Mirror" },
+    doc: { color: "#6c8ebf", label: "Doc" },
+    link: { color: "#0073ea", label: "Link" },
+    rating: { color: "#fdab3d", label: "Rating" },
+    file: { color: "#6c8ebf", label: "Files" },
+    tags: { color: "#333", label: "Tags" },
+    timeline: { color: "#0073ea", label: "Timeline" },
+    dependency: { color: "#7e3b8a", label: "Dependency" },
 };
 const getTypeMeta = (type) => COL_TYPE_META[type] || { color: "#9d99b9", label: type };
 
@@ -187,17 +199,17 @@ let _sc = 1;
 const makeSectionId = () => `s_${Date.now()}_${_sc++}`;
 
 const makeSection = (title, order) => ({
-    id:        makeSectionId(),
-    title:     title || `Section ${_sc - 1}`,
-    order:     order ?? _sc - 1,
+    id: makeSectionId(),
+    title: title || `Section ${_sc - 1}`,
+    order: order ?? _sc - 1,
     isDefault: "false",
-    rows:      [[null, null]],
+    rows: [[null, null]],
 });
 
 // Types that support maxValues (relation / people)
 const MAX_VALUES_TYPES = new Set(["board_relation", "people"]);
 // Types that support maxFiles
-const MAX_FILES_TYPES  = new Set(["file"]);
+const MAX_FILES_TYPES = new Set(["file"]);
 
 /** Convert a section's rows + requiredSet → flat fields array (for JSON storage) */
 const rowsToFields = (rows, requiredSet, readOnlySet = new Set(), fieldVisRules = {}, fieldConfigs = {}) =>
@@ -208,16 +220,16 @@ const rowsToFields = (rows, requiredSet, readOnlySet = new Set(), fieldVisRules 
                 id: `field_${col.id}`,
                 columnId: col.id,
                 type: col.type,
-                isRequired: requiredSet.has(col.id)  ? "true" : "false",
-                readOnly:   readOnlySet.has(col.id)  ? "true" : "false",
+                isRequired: requiredSet.has(col.id) ? "true" : "false",
+                readOnly: readOnlySet.has(col.id) ? "true" : "false",
             };
             // maxValues — default 1000 for relation/people types
             if (MAX_VALUES_TYPES.has(col.type)) {
-                field.maxValues = (cfg.maxValues !== undefined && cfg.maxValues !== "") ? Number(cfg.maxValues) : 1000;
+                field.maxValues = cfg.maxValues !== undefined && cfg.maxValues !== "" ? Number(cfg.maxValues) : 1000;
             }
             // maxFiles — default 10 for file type
             if (MAX_FILES_TYPES.has(col.type)) {
-                field.maxFiles = (cfg.maxFiles !== undefined && cfg.maxFiles !== "") ? Number(cfg.maxFiles) : 10;
+                field.maxFiles = cfg.maxFiles !== undefined && cfg.maxFiles !== "" ? Number(cfg.maxFiles) : 10;
             }
             // helptext
             if (cfg.helptext && cfg.helptext.trim()) {
@@ -231,6 +243,13 @@ const rowsToFields = (rows, requiredSet, readOnlySet = new Set(), fieldVisRules 
                     criteria: vr.criteria || "ALL",
                 };
             }
+            // lookup_filters — board_relation only; null when no conditions (explicit null
+            // is stored so the consumer can distinguish "not configured" vs "empty array")
+            if (col.type === "board_relation") {
+                const lf = cfg.lookup_filters;
+                field.lookup_filters = lf && Array.isArray(lf.conditions) && lf.conditions.length > 0 ? lf : null;
+            }
+
             return field;
         }),
     );
@@ -254,7 +273,7 @@ const fieldsToRows = (fields, columnsMap) => {
 function serialiseSectionsJSON(sections, requiredFields, readOnlyFields, sectionRules, fieldVisRules = {}, fieldConfigs = {}) {
     const payload = sections.map((sec, idx) => {
         const fields = rowsToFields(sec.rows, requiredFields, readOnlyFields, fieldVisRules, fieldConfigs);
-        
+
         const rawRules = sectionRules[sec.id] || { rules: [], criteria: "ALL" };
         const conditions = (rawRules.rules || []).map((r, i) => ({
             id: r.id || `rule_${sec.id}_${i}`,
@@ -288,17 +307,13 @@ function deserialiseSectionsJSON(raw, columnsMap) {
         return null;
     }
 
-    const sectionsData = Array.isArray(parsed)
-        ? parsed
-        : Array.isArray(parsed.sections)
-            ? parsed.sections
-            : null;
+    const sectionsData = Array.isArray(parsed) ? parsed : Array.isArray(parsed.sections) ? parsed.sections : null;
 
     if (!sectionsData || sectionsData.length === 0) return null;
 
-    const placed      = new Set();
-    const required    = new Set();
-    const rulesMap    = {};
+    const placed = new Set();
+    const required = new Set();
+    const rulesMap = {};
     const visRulesMap = {};
     const fieldConfigsMap = {}; // { [columnId]: { helptext?, maxValues?, maxFiles? } }
     const readOnly = new Set();
@@ -307,7 +322,7 @@ function deserialiseSectionsJSON(raw, columnsMap) {
         .sort((a, b) => (a.order ?? 0) - (b.order ?? 0))
         .map((sec) => {
             const fields = Array.isArray(sec.fields) ? sec.fields : [];
-            const rows   = fieldsToRows(fields, columnsMap);
+            const rows = fieldsToRows(fields, columnsMap);
 
             const lastRow = rows[rows.length - 1];
             if (lastRow && (lastRow[0] !== null || lastRow[1] !== null)) {
@@ -324,36 +339,38 @@ function deserialiseSectionsJSON(raw, columnsMap) {
 
                     // Restore field config (helptext, maxValues, maxFiles)
                     const cfg = {};
-                    if (fieldDef?.helptext)  cfg.helptext  = fieldDef.helptext;
+                    if (fieldDef?.helptext) cfg.helptext = fieldDef.helptext;
                     if (fieldDef?.maxValues !== undefined) cfg.maxValues = fieldDef.maxValues;
-                    if (fieldDef?.maxFiles  !== undefined) cfg.maxFiles  = fieldDef.maxFiles;
+                    if (fieldDef?.maxFiles !== undefined) cfg.maxFiles = fieldDef.maxFiles;
                     if (Object.keys(cfg).length > 0) fieldConfigsMap[col.id] = cfg;
                     // Restore visibility rules
                     if (fieldDef?.visibilityRules?.conditions?.length) {
                         visRulesMap[col.id] = {
                             conditions: fieldDef.visibilityRules.conditions,
-                            criteria:   fieldDef.visibilityRules.criteria || "ALL",
+                            criteria: fieldDef.visibilityRules.criteria || "ALL",
                         };
                     }
+                    if (fieldDef?.lookup_filters)
+                        cfg.lookup_filters = fieldDef.lookup_filters;
                 }),
             );
 
             const storedRules = sec.rules || {};
             const builderRules = {
                 rules: (storedRules.conditions || []).map((c) => ({
-                    id:       c.id,
-                    field:    c.field,
+                    id: c.id,
+                    field: c.field,
                     operator: c.operator,
-                    value:    c.value,
+                    value: c.value,
                 })),
                 criteria: storedRules.criteria || "ALL",
             };
             rulesMap[sec.id] = builderRules;
 
             return {
-                id:        sec.id || makeSectionId(),
-                title:     sec.title || "Untitled Section",
-                order:     sec.order ?? 0,
+                id: sec.id || makeSectionId(),
+                title: sec.title || "Untitled Section",
+                order: sec.order ?? 0,
                 isDefault: "false",
                 rows,
             };
@@ -363,10 +380,10 @@ function deserialiseSectionsJSON(raw, columnsMap) {
         sections,
         requiredFields: required,
         readOnlyFields: readOnly,
-        placedColIds:   placed,
-        sectionRules:   rulesMap,
+        placedColIds: placed,
+        sectionRules: rulesMap,
         fieldVisibilityRules: visRulesMap,
-        fieldConfigs:         fieldConfigsMap,
+        fieldConfigs: fieldConfigsMap,
     };
 }
 
@@ -374,85 +391,106 @@ function deserialiseSectionsJSON(raw, columnsMap) {
 // SECTION RULES MODAL (unchanged)
 // ─────────────────────────────────────────────────────────────────────────────
 function SectionRulesModal({ section, rulesData, onSave, onClose }) {
-    const [rules, setRules] = useState(() =>
-        (rulesData?.rules || []).map((r, i) => ({ ...r, id: r.id || `rule_${Date.now()}_${i}` }))
-    );
+    const [rules, setRules] = useState(() => (rulesData?.rules || []).map((r, i) => ({ ...r, id: r.id || `rule_${Date.now()}_${i}` })));
     //const [criteria, setCriteria] = useState(rulesData?.criteria || "ALL");
     const initCriteria = () => {
         const saved = rulesData?.criteria || "";
         const count = (rulesData?.rules || []).length;
-        if (saved === "ALL") return count >= 2 ? Array.from({length: count}, (_, i) => i + 1).join(" AND ") : "";
-        if (saved === "ANY") return count >= 2 ? Array.from({length: count}, (_, i) => i + 1).join(" OR ") : "";
+        if (saved === "ALL") return count >= 2 ? Array.from({ length: count }, (_, i) => i + 1).join(" AND ") : "";
+        if (saved === "ANY") return count >= 2 ? Array.from({ length: count }, (_, i) => i + 1).join(" OR ") : "";
         return saved || "";
     };
     const [criteriaExpr, setCriteriaExpr] = useState(initCriteria);
-    const [criteriaErr,  setCriteriaErr]  = useState("");
-    const addRule = () =>
-        setRules((prev) => [...prev, { id: `rule_${Date.now()}`, field: "title", operator: "equals", value: "" }]);
+    const [criteriaErr, setCriteriaErr] = useState("");
+    const addRule = () => setRules((prev) => [...prev, { id: `rule_${Date.now()}`, field: "title", operator: "equals", value: "" }]);
 
-    const updateRule = (id, key, val) =>
-        setRules((prev) => prev.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
+    const updateRule = (id, key, val) => setRules((prev) => prev.map((r) => (r.id === id ? { ...r, [key]: val } : r)));
 
-    const removeRule = (id) =>
-        setRules((prev) => prev.filter((r) => r.id !== id));
+    const removeRule = (id) => setRules((prev) => prev.filter((r) => r.id !== id));
 
     const handleSave = () => {
         setCriteriaErr("");
         const validRules = rules.filter((r) => r.field.trim() !== "");
         if (validRules.length >= 2) {
             const expr = criteriaExpr.trim();
-            if (!expr) { setCriteriaErr("Please enter a logic expression (e.g. 1 AND (2 OR 3))."); return; }
-            if (!/^[\d\sANDOR()]+$/i.test(expr)) { setCriteriaErr("Use condition numbers, AND, OR, and parentheses only."); return; }
+            if (!expr) {
+                setCriteriaErr("Please enter a logic expression (e.g. 1 AND (2 OR 3)).");
+                return;
+            }
+            if (!/^[\d\sANDOR()]+$/i.test(expr)) {
+                setCriteriaErr("Use condition numbers, AND, OR, and parentheses only.");
+                return;
+            }
             const nums = expr.match(/\d+/g) || [];
             for (const n of nums) {
                 const idx = parseInt(n, 10);
-                if (idx < 1 || idx > validRules.length) { setCriteriaErr(`Condition ${n} doesn't exist. Use numbers 1–${validRules.length}.`); return; }
+                if (idx < 1 || idx > validRules.length) {
+                    setCriteriaErr(`Condition ${n} doesn't exist. Use numbers 1–${validRules.length}.`);
+                    return;
+                }
             }
             let depth = 0;
             for (const ch of expr) {
                 if (ch === "(") depth++;
                 if (ch === ")") depth--;
-                if (depth < 0) { setCriteriaErr("Unbalanced parentheses."); return; }
+                if (depth < 0) {
+                    setCriteriaErr("Unbalanced parentheses.");
+                    return;
+                }
             }
-            if (depth !== 0) { setCriteriaErr("Unbalanced parentheses."); return; }
+            if (depth !== 0) {
+                setCriteriaErr("Unbalanced parentheses.");
+                return;
+            }
         }
-        const finalCriteria = validRules.length >= 2 ? criteriaExpr.trim().toUpperCase() : (validRules.length === 1 ? "1" : "");
+        const finalCriteria = validRules.length >= 2 ? criteriaExpr.trim().toUpperCase() : validRules.length === 1 ? "1" : "";
         onSave({ rules: validRules, criteria: finalCriteria });
     };
 
-    
     return (
         <div className="srm-backdrop" onClick={(e) => e.target === e.currentTarget && onClose()}>
             <div className="srm-modal">
                 <div className="srm-header">
                     <div className="srm-header-left">
-                        <span className="srm-header-icon"><Icon.Gear /></span>
+                        <span className="srm-header-icon">
+                            <Icon.Gear />
+                        </span>
                         <div>
                             <h2 className="srm-title">Visibility Rules</h2>
-                            <p className="srm-subtitle">Section: <strong>{section.title}</strong></p>
+                            <p className="srm-subtitle">
+                                Section: <strong>{section.title}</strong>
+                            </p>
                         </div>
                     </div>
-                    <button className="srm-close" onClick={onClose}><Icon.Close /></button>
+                    <button className="srm-close" onClick={onClose}>
+                        <Icon.Close />
+                    </button>
                 </div>
 
                 <div className="srm-body">
                     <p className="srm-desc">Define who sees this section based on user profile fields.</p>
 
                     <div className="srm-rules-list">
-                        {rules.length === 0 && (
-                            <div className="srm-empty-rules">No rules defined — section is visible to all users.</div>
-                        )}
+                        {rules.length === 0 && <div className="srm-empty-rules">No rules defined — section is visible to all users.</div>}
                         {rules.map((rule, idx) => (
                             <div key={rule.id} className="srm-rule-row">
                                 <span className="srm-rule-num">{idx + 1}</span>
                                 <select className="srm-select" value={rule.field} onChange={(e) => updateRule(rule.id, "field", e.target.value)}>
                                     {USER_PROFILE_FIELDS.map((f) => (
-                                        <option key={f.id} value={f.id}>{f.label}</option>
+                                        <option key={f.id} value={f.id}>
+                                            {f.label}
+                                        </option>
                                     ))}
                                 </select>
-                                <select className="srm-select srm-select-op" value={rule.operator} onChange={(e) => updateRule(rule.id, "operator", e.target.value)}>
+                                <select
+                                    className="srm-select srm-select-op"
+                                    value={rule.operator}
+                                    onChange={(e) => updateRule(rule.id, "operator", e.target.value)}
+                                >
                                     {RULE_OPERATORS.map((op) => (
-                                        <option key={op.id} value={op.id}>{op.label}</option>
+                                        <option key={op.id} value={op.id}>
+                                            {op.label}
+                                        </option>
                                     ))}
                                 </select>
                                 <input
@@ -469,7 +507,9 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
                         ))}
                     </div>
 
-                    <button className="srm-add-rule" onClick={addRule}><Icon.Plus /> Add Rule</button>
+                    <button className="srm-add-rule" onClick={addRule}>
+                        <Icon.Plus /> Add Rule
+                    </button>
 
                     {rules.length >= 2 && (
                         <div className="srm-criteria">
@@ -477,13 +517,19 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
                             <div className="srm-criteria-toggle" style={{ marginBottom: "6px" }}>
                                 <button
                                     className="srm-criteria-btn"
-                                    onClick={() => { setCriteriaExpr(rules.map((_, i) => i + 1).join(" AND ")); setCriteriaErr(""); }}
+                                    onClick={() => {
+                                        setCriteriaExpr(rules.map((_, i) => i + 1).join(" AND "));
+                                        setCriteriaErr("");
+                                    }}
                                 >
                                     ALL (AND)
                                 </button>
                                 <button
                                     className="srm-criteria-btn"
-                                    onClick={() => { setCriteriaExpr(rules.map((_, i) => i + 1).join(" OR ")); setCriteriaErr(""); }}
+                                    onClick={() => {
+                                        setCriteriaExpr(rules.map((_, i) => i + 1).join(" OR "));
+                                        setCriteriaErr("");
+                                    }}
                                 >
                                     ANY (OR)
                                 </button>
@@ -493,15 +539,35 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
                                 type="text"
                                 value={criteriaExpr}
                                 placeholder="e.g. 1 AND (2 OR 3)"
-                                onChange={(e) => { setCriteriaExpr(e.target.value); setCriteriaErr(""); }}
+                                onChange={(e) => {
+                                    setCriteriaExpr(e.target.value);
+                                    setCriteriaErr("");
+                                }}
                                 style={{ fontFamily: "var(--mono)", fontSize: "13px" }}
                             />
                             <div style={{ fontSize: "11px", color: "#676879", marginTop: "4px" }}>
-                                Available: <code style={{ background: "#fff", border: "1px solid #d0d4e4", borderRadius: "3px", padding: "1px 5px" }}>{rules.map((_, i) => i + 1).join(", ")}</code>
+                                Available:{" "}
+                                <code style={{ background: "#fff", border: "1px solid #d0d4e4", borderRadius: "3px", padding: "1px 5px" }}>
+                                    {rules.map((_, i) => i + 1).join(", ")}
+                                </code>
                             </div>
                             {criteriaErr && (
-                                <div style={{ display: "flex", alignItems: "center", gap: "8px", padding: "8px 10px", background: "#fff4f6", border: "1px solid #fac0cb", borderRadius: "6px", color: "#b82020", fontSize: "12px", marginTop: "6px" }}>
-                                    <span>⚠️</span><span>{criteriaErr}</span>
+                                <div
+                                    style={{
+                                        display: "flex",
+                                        alignItems: "center",
+                                        gap: "8px",
+                                        padding: "8px 10px",
+                                        background: "#fff4f6",
+                                        border: "1px solid #fac0cb",
+                                        borderRadius: "6px",
+                                        color: "#b82020",
+                                        fontSize: "12px",
+                                        marginTop: "6px",
+                                    }}
+                                >
+                                    <span>⚠️</span>
+                                    <span>{criteriaErr}</span>
                                 </div>
                             )}
                         </div>
@@ -509,7 +575,9 @@ function SectionRulesModal({ section, rulesData, onSave, onClose }) {
                 </div>
 
                 <div className="srm-footer">
-                    <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="srm-btn-secondary" onClick={onClose}>
+                        Cancel
+                    </button>
                     <button className="srm-btn-primary" onClick={handleSave}>
                         <Icon.Save /> Save Rules
                     </button>
@@ -528,7 +596,9 @@ function BoardSelector({ boards, loading, error, onSelect, selectedBoard }) {
     const ref = useRef(null);
 
     useEffect(() => {
-        const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setIsOpen(false); };
+        const h = (e) => {
+            if (ref.current && !ref.current.contains(e.target)) setIsOpen(false);
+        };
         document.addEventListener("mousedown", h);
         return () => document.removeEventListener("mousedown", h);
     }, []);
@@ -548,7 +618,10 @@ function BoardSelector({ boards, loading, error, onSelect, selectedBoard }) {
         return (
             <div className="plb-error-box">
                 <span>⚠️</span>
-                <div><strong>Could not load boards</strong><p>{error}</p></div>
+                <div>
+                    <strong>Could not load boards</strong>
+                    <p>{error}</p>
+                </div>
             </div>
         );
 
@@ -556,7 +629,9 @@ function BoardSelector({ boards, loading, error, onSelect, selectedBoard }) {
         <div className="bsel-wrap" ref={ref}>
             <div className={`bsel-trigger ${isOpen ? "open" : ""} ${loading ? "disabled" : ""}`} onClick={() => !loading && setIsOpen((p) => !p)}>
                 {loading ? (
-                    <span className="bsel-placeholder"><span className="plb-spinner-sm" /> Loading boards…</span>
+                    <span className="bsel-placeholder">
+                        <span className="plb-spinner-sm" /> Loading boards…
+                    </span>
                 ) : selectedBoard ? (
                     <span className="bsel-value">
                         <span className="bsel-dot" />
@@ -566,7 +641,9 @@ function BoardSelector({ boards, loading, error, onSelect, selectedBoard }) {
                 ) : (
                     <span className="bsel-placeholder">Choose a board…</span>
                 )}
-                <span className={`bsel-caret ${isOpen ? "open" : ""}`}><Icon.Chevron /></span>
+                <span className={`bsel-caret ${isOpen ? "open" : ""}`}>
+                    <Icon.Chevron />
+                </span>
             </div>
 
             {isOpen && (
@@ -586,11 +663,19 @@ function BoardSelector({ boards, loading, error, onSelect, selectedBoard }) {
                                         <div
                                             key={b.id}
                                             className={`bsel-option ${selectedBoard?.id === b.id ? "active" : ""}`}
-                                            onClick={() => { setIsOpen(false); setSearch(""); onSelect(b); }}
+                                            onClick={() => {
+                                                setIsOpen(false);
+                                                setSearch("");
+                                                onSelect(b);
+                                            }}
                                         >
                                             <Icon.Board />
                                             <span className="bsel-opt-name">{b.name}</span>
-                                            {selectedBoard?.id === b.id && <span className="bsel-check"><Icon.Check /></span>}
+                                            {selectedBoard?.id === b.id && (
+                                                <span className="bsel-check">
+                                                    <Icon.Check />
+                                                </span>
+                                            )}
                                         </div>
                                     ))}
                                 </div>
@@ -627,9 +712,7 @@ function LayoutField({ col, isRequired, isReadOnly, hasVisRules, fieldConfig, on
 
     // Badge label shown on the field card
     const optionBadge = isRequired ? "Required" : isReadOnly ? "Read-Only" : null;
-    const badgeStyle  = isReadOnly
-        ? { borderColor: "#9d66ab", color: "#7e3b8a", background: "#f8f2fb" }
-        : {};
+    const badgeStyle = isReadOnly ? { borderColor: "#9d66ab", color: "#7e3b8a", background: "#f8f2fb" } : {};
 
     return (
         <div
@@ -637,14 +720,16 @@ function LayoutField({ col, isRequired, isReadOnly, hasVisRules, fieldConfig, on
             draggable
             onDragStart={(e) => onDragStart(e, col)}
         >
-            <span className="lfield-grip"><Icon.Grip /></span>
+            <span className="lfield-grip">
+                <Icon.Grip />
+            </span>
             <span className="lfield-dot" style={{ background: meta.color }} />
             <span className="lfield-name">{col.title}</span>
             <span className="lfield-type">{meta.label}</span>
 
             {/* Options badge — shows current state, click to edit */}
             <button
-                className={`lfield-req ${(isRequired || isReadOnly) ? "on" : ""}`}
+                className={`lfield-req ${isRequired || isReadOnly ? "on" : ""}`}
                 style={badgeStyle}
                 onMouseDown={stopDrag}
                 onClick={() => onOpenOptions(col)}
@@ -657,7 +742,10 @@ function LayoutField({ col, isRequired, isReadOnly, hasVisRules, fieldConfig, on
             <button
                 className={`lfield-config ${hasConfig ? "active" : ""}`}
                 onMouseDown={stopDrag}
-                onClick={(e) => { e.stopPropagation(); onOpenConfig(col); }}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenConfig(col);
+                }}
                 title={hasConfig ? "Edit field settings" : "Field settings"}
             >
                 <Icon.Gear />
@@ -666,18 +754,16 @@ function LayoutField({ col, isRequired, isReadOnly, hasVisRules, fieldConfig, on
             <button
                 className={`lfield-eye ${hasVisRules ? "active" : ""}`}
                 onMouseDown={stopDrag}
-                onClick={(e) => { e.stopPropagation(); onOpenVisRules(col); }}
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenVisRules(col);
+                }}
                 title={hasVisRules ? "Edit visibility rules" : "Add visibility rules"}
             >
                 <Icon.Eye />
                 {hasVisRules && <span className="lfield-eye-badge" />}
             </button>
-            <button
-                className="lfield-remove"
-                onMouseDown={stopDrag}
-                onClick={() => onRemove(col.id)}
-                title="Remove field"
-            >
+            <button className="lfield-remove" onMouseDown={stopDrag} onClick={() => onRemove(col.id)} title="Remove field">
                 <Icon.Trash />
             </button>
         </div>
@@ -688,37 +774,53 @@ function LayoutField({ col, isRequired, isReadOnly, hasVisRules, fieldConfig, on
 // SECTION ROW
 // ─────────────────────────────────────────────────────────────────────────────
 function SectionRow({
-    row, rowIndex, sectionId,
-    onRemoveField, onDragStartField, onDropInSlot,
-    onOpenOptions, requiredFields, readOnlyFields,   // ← updated
-    fieldVisibilityRules, onOpenVisRules,
-    fieldConfigs, onOpenConfig,
+    row,
+    rowIndex,
+    sectionId,
+    onRemoveField,
+    onDragStartField,
+    onDropInSlot,
+    onOpenOptions,
+    requiredFields,
+    readOnlyFields, // ← updated
+    fieldVisibilityRules,
+    onOpenVisRules,
+    fieldConfigs,
+    onOpenConfig,
 }) {
     const [overSlot, setOverSlot] = useState(null);
     return (
         <div className="ls-row">
             {[0, 1].map((slotIdx) => {
-                const col    = row[slotIdx];
+                const col = row[slotIdx];
                 const isOver = overSlot === slotIdx;
                 return (
                     <div
                         key={slotIdx}
                         className={`ls-slot ${!col ? "empty" : ""} ${isOver ? "drag-over" : ""}`}
-                        onDragOver={(e) => { e.preventDefault(); setOverSlot(slotIdx); }}
-                        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setOverSlot(null); }}
-                        onDrop={(e) => { setOverSlot(null); onDropInSlot(e, sectionId, rowIndex, slotIdx); }}
+                        onDragOver={(e) => {
+                            e.preventDefault();
+                            setOverSlot(slotIdx);
+                        }}
+                        onDragLeave={(e) => {
+                            if (!e.currentTarget.contains(e.relatedTarget)) setOverSlot(null);
+                        }}
+                        onDrop={(e) => {
+                            setOverSlot(null);
+                            onDropInSlot(e, sectionId, rowIndex, slotIdx);
+                        }}
                     >
                         {isOver && <div className="ls-slot-insert-indicator" />}
                         {col ? (
                             <LayoutField
                                 col={col}
                                 isRequired={requiredFields.has(col.id)}
-                                isReadOnly={readOnlyFields.has(col.id)}   // ← new
-                                hasVisRules={!!(fieldVisibilityRules?.[col.id]?.conditions?.length)}
+                                isReadOnly={readOnlyFields.has(col.id)} // ← new
+                                hasVisRules={!!fieldVisibilityRules?.[col.id]?.conditions?.length}
                                 fieldConfig={fieldConfigs?.[col.id] || null}
                                 onRemove={(id) => onRemoveField(sectionId, rowIndex, slotIdx, id)}
                                 onDragStart={onDragStartField}
-                                onOpenOptions={onOpenOptions}             // ← new
+                                onOpenOptions={onOpenOptions} // ← new
                                 onOpenVisRules={onOpenVisRules}
                                 onOpenConfig={onOpenConfig}
                             />
@@ -736,19 +838,33 @@ function SectionRow({
 // SECTION
 // ─────────────────────────────────────────────────────────────────────────────
 function Section({
-    section, onAddRow, onRemoveField, onRemoveSection, onRenameSection,
-    onDragStartField, onDropInSlot,
-    onOpenOptions, requiredFields, readOnlyFields,   // ← updated
-    onOpenRules, sectionRulesData,
-    fieldVisibilityRules, onOpenVisRules,
-    fieldConfigs, onOpenConfig,
+    section,
+    onAddRow,
+    onRemoveField,
+    onRemoveSection,
+    onRenameSection,
+    onDragStartField,
+    onDropInSlot,
+    onOpenOptions,
+    requiredFields,
+    readOnlyFields, // ← updated
+    onOpenRules,
+    sectionRulesData,
+    fieldVisibilityRules,
+    onOpenVisRules,
+    fieldConfigs,
+    onOpenConfig,
 }) {
     const [editing, setEditing] = useState(false);
     const [title, setTitle] = useState(section.title);
     const inputRef = useRef(null);
 
-    useEffect(() => { setTitle(section.title); }, [section.title]);
-    useEffect(() => { if (editing) inputRef.current?.focus(); }, [editing]);
+    useEffect(() => {
+        setTitle(section.title);
+    }, [section.title]);
+    useEffect(() => {
+        if (editing) inputRef.current?.focus();
+    }, [editing]);
 
     const commit = () => {
         setEditing(false);
@@ -770,7 +886,10 @@ function Section({
                             onBlur={commit}
                             onKeyDown={(e) => {
                                 if (e.key === "Enter") commit();
-                                if (e.key === "Escape") { setEditing(false); setTitle(section.title); }
+                                if (e.key === "Escape") {
+                                    setEditing(false);
+                                    setTitle(section.title);
+                                }
                             }}
                         />
                     ) : (
@@ -784,7 +903,9 @@ function Section({
                         <Icon.Eye />
                         {hasRules && <span className="ls-rules-badge">{sectionRulesData.rules.length}</span>}
                     </button>
-                    <button className="ls-btn" onClick={() => setEditing(true)} title="Rename">✏️</button>
+                    <button className="ls-btn" onClick={() => setEditing(true)} title="Rename">
+                        ✏️
+                    </button>
                     <button className="ls-btn danger" onClick={() => onRemoveSection(section.id)} title="Delete section">
                         <Icon.Trash />
                     </button>
@@ -823,11 +944,17 @@ function Section({
 
 function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
     const [reqChecked, setReqChecked] = useState(isRequired);
-    const [roChecked,  setRoChecked]  = useState(isReadOnly);
+    const [roChecked, setRoChecked] = useState(isReadOnly);
 
-    const handleRequired = () => { setReqChecked(true);  setRoChecked(false); };
-    const handleReadOnly = () => { setRoChecked(true);   setReqChecked(false); };
-    const handleUncheck  = (which) => {
+    const handleRequired = () => {
+        setReqChecked(true);
+        setRoChecked(false);
+    };
+    const handleReadOnly = () => {
+        setRoChecked(true);
+        setReqChecked(false);
+    };
+    const handleUncheck = (which) => {
         if (which === "req") setReqChecked(false);
         else setRoChecked(false);
     };
@@ -839,7 +966,9 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
             <div className="srm-modal" style={{ maxWidth: "360px" }}>
                 <div className="srm-header">
                     <div className="srm-header-left">
-                        <span className="srm-header-icon"><Icon.Wrench /></span>
+                        <span className="srm-header-icon">
+                            <Icon.Wrench />
+                        </span>
                         <div>
                             <h2 className="srm-title">Field Options</h2>
                             <p className="srm-subtitle">
@@ -850,7 +979,9 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
                             </p>
                         </div>
                     </div>
-                    <button className="srm-close" onClick={onClose}><Icon.Close /></button>
+                    <button className="srm-close" onClick={onClose}>
+                        <Icon.Close />
+                    </button>
                 </div>
 
                 <div className="srm-body" style={{ gap: "10px" }}>
@@ -860,7 +991,7 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
                         <input
                             type="checkbox"
                             checked={reqChecked}
-                            onChange={() => reqChecked ? handleUncheck("req") : handleRequired()}
+                            onChange={() => (reqChecked ? handleUncheck("req") : handleRequired())}
                             className="fom-checkbox"
                         />
                         <div className="fom-option-info">
@@ -874,7 +1005,7 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
                         <input
                             type="checkbox"
                             checked={roChecked}
-                            onChange={() => roChecked ? handleUncheck("ro") : handleReadOnly()}
+                            onChange={() => (roChecked ? handleUncheck("ro") : handleReadOnly())}
                             className="fom-checkbox"
                         />
                         <div className="fom-option-info">
@@ -886,12 +1017,338 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
                 </div>
 
                 <div className="srm-footer">
-                    <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="srm-btn-secondary" onClick={onClose}>
+                        Cancel
+                    </button>
                     <button className="srm-btn-primary" onClick={() => onSave({ isRequired: reqChecked, isReadOnly: roChecked })}>
                         <Icon.Check /> Save
                     </button>
                 </div>
             </div>
+        </div>
+    );
+}
+
+function LookupFiltersSection({
+    col, // the board_relation column object (needs settings_str)
+    conditions, // [{ id, boardId, source, fieldId, operator, value }]
+    onConditionsChange, // React state setter for conditions array
+    criteria, // string: "ALL" | free-form expression
+    onCriteriaChange, // setter for criteria string
+}) {
+    // ── Extract linked board IDs from column settings ──────────────────────
+    const linkedBoardIds = React.useMemo(() => {
+        try {
+            const s = JSON.parse(col.settings_str || "{}");
+            const raw = s.boardIds?.length ? s.boardIds : s.boardId ? [s.boardId] : [];
+            return raw.map(String);
+        } catch {
+            return [];
+        }
+    }, [col.settings_str]);
+
+    // ── Per-board column + name cache ──────────────────────────────────────
+    // boardColumnsMap: { [boardId]: columns[] }  — null means fetch failed
+    // boardNamesMap:   { [boardId]: string }
+    const [boardColumnsMap, setBoardColumnsMap] = useState({});
+    const [boardNamesMap, setBoardNamesMap] = useState({});
+    const [fetchingBoards, setFetchingBoards] = useState(false);
+
+    useEffect(() => {
+        if (!linkedBoardIds.length) return;
+        setFetchingBoards(true);
+        Promise.all(linkedBoardIds.map((bid) => getBoardColumns(bid).then((res) => ({ bid, res })))).then((results) => {
+            const colsMap = {},
+                namesMap = {};
+            results.forEach(({ bid, res }) => {
+                colsMap[bid] = res.success ? res.columns : null;
+                namesMap[bid] = res.success ? res.boardName || `Board ${bid}` : `Board ${bid}`;
+            });
+            setBoardColumnsMap(colsMap);
+            setBoardNamesMap(namesMap);
+            setFetchingBoards(false);
+        });
+    }, []); // runs once per modal open — linked boards don't change mid-session
+
+    // ── Condition helpers ──────────────────────────────────────────────────
+    const makeCond = () => ({
+        id: makeLookupCondId(),
+        boardId: linkedBoardIds.length === 1 ? linkedBoardIds[0] : "",
+        source: "field",
+        fieldId: "",
+        operator: "==",
+        value: "",
+    });
+
+    const addCondition = () => onConditionsChange((prev) => [...prev, makeCond()]);
+    const removeCondition = (id) => onConditionsChange((prev) => prev.filter((c) => c.id !== id));
+
+    const updateCondition = (id, patch) => {
+        onConditionsChange((prev) =>
+            prev.map((c) => {
+                if (c.id !== id) return c;
+                const updated = { ...c, ...patch };
+                // Board changed → reset dependent fields
+                if ("boardId" in patch) {
+                    updated.fieldId = "";
+                    updated.operator = "==";
+                    updated.value = "";
+                }
+                // Column changed → snap operator to first valid op for new column type
+                if ("fieldId" in patch) {
+                    const cols = boardColumnsMap[updated.boardId] || [];
+                    const srcCol = cols.find((sc) => sc.id === patch.fieldId);
+                    const ops = getLookupOperatorsForType(srcCol?.type || "text");
+                    updated.operator = ops[0]?.id || "==";
+                    updated.value = "";
+                }
+                // Operator changed and new op needs no value → clear value
+                if ("operator" in patch && !lookupOperatorNeedsValue(patch.operator)) {
+                    updated.value = "";
+                }
+                return updated;
+            }),
+        );
+    };
+
+    // ── Config error detection (stale boardId / fieldId) ──────────────────
+    const getConditionError = (cond) => {
+        if (!cond.boardId) return null;
+        if (!linkedBoardIds.includes(String(cond.boardId))) {
+            return `Board "${cond.boardId}" is no longer connected to this column.`;
+        }
+        const cols = boardColumnsMap[String(cond.boardId)];
+        if (cols === null) {
+            return `Cannot load columns for board "${boardNamesMap[cond.boardId] || cond.boardId}".`;
+        }
+        if (Array.isArray(cols) && cond.fieldId && !cols.find((c) => c.id === cond.fieldId)) {
+            return `Column "${cond.fieldId}" no longer exists in this board.`;
+        }
+        return null;
+    };
+
+    // ── Render ─────────────────────────────────────────────────────────────
+    if (!linkedBoardIds.length) {
+        return <p style={{ fontSize: "12px", color: "#adb5c3", margin: "4px 0" }}>No boards are connected to this column yet.</p>;
+    }
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {fetchingBoards && <p style={{ fontSize: "12px", color: "#676879" }}>Loading board columns…</p>}
+
+            {!fetchingBoards && conditions.length === 0 && (
+                <p style={{ fontSize: "12px", color: "#adb5c3", margin: "4px 0" }}>No filters — all records from linked boards will be shown.</p>
+            )}
+
+            {/* Condition rows */}
+            {conditions.map((cond, idx) => {
+                const condErr = getConditionError(cond);
+                const boardCols = cond.boardId ? boardColumnsMap[String(cond.boardId)] || [] : [];
+                const srcCol = Array.isArray(boardCols) ? boardCols.find((c) => c.id === cond.fieldId) : null;
+                const ops = getLookupOperatorsForType(srcCol?.type || "text");
+                const needsVal = lookupOperatorNeedsValue(cond.operator);
+
+                const selectStyle = {
+                    padding: "5px 8px",
+                    border: "1px solid #d0d4e4",
+                    borderRadius: "4px",
+                    fontSize: "12px",
+                    fontFamily: "inherit",
+                    background: "#fff",
+                    cursor: "pointer",
+                    flex: "1 1 0",
+                    minWidth: 0,
+                };
+                const disabledSelectStyle = { ...selectStyle, background: "#f5f6f8", cursor: "not-allowed", color: "#adb5c3" };
+
+                return (
+                    <div key={cond.id} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
+                            {/* Condition number */}
+                            <span
+                                style={{
+                                    minWidth: "18px",
+                                    height: "18px",
+                                    borderRadius: "50%",
+                                    background: "#e8eaf0",
+                                    color: "#676879",
+                                    fontSize: "11px",
+                                    fontWeight: 700,
+                                    display: "flex",
+                                    alignItems: "center",
+                                    justifyContent: "center",
+                                    flexShrink: 0,
+                                }}
+                            >
+                                {idx + 1}
+                            </span>
+
+                            {/* Board selector */}
+                            <select style={selectStyle} value={cond.boardId} onChange={(e) => updateCondition(cond.id, { boardId: e.target.value })}>
+                                <option value="">— Board —</option>
+                                {linkedBoardIds.map((bid) => (
+                                    <option key={bid} value={bid}>
+                                        {boardNamesMap[bid] || `Board ${bid}`}
+                                    </option>
+                                ))}
+                            </select>
+
+                            {/* Source — fixed label */}
+                            <span
+                                style={{
+                                    padding: "3px 8px",
+                                    background: "#e8eaf0",
+                                    borderRadius: "4px",
+                                    fontSize: "11px",
+                                    fontWeight: 600,
+                                    color: "#676879",
+                                    flexShrink: 0,
+                                    whiteSpace: "nowrap",
+                                }}
+                            >
+                                field
+                            </span>
+
+                            {/* Column selector */}
+                            <select
+                                style={!cond.boardId || !Array.isArray(boardColumnsMap[cond.boardId]) ? disabledSelectStyle : selectStyle}
+                                value={cond.fieldId}
+                                onChange={(e) => updateCondition(cond.id, { fieldId: e.target.value })}
+                                disabled={!cond.boardId || !Array.isArray(boardColumnsMap[cond.boardId])}
+                            >
+                                <option value="">— Column —</option>
+                                {Array.isArray(boardCols) &&
+                                    boardCols.map((c) => (
+                                        <option key={c.id} value={c.id}>
+                                            {c.title}
+                                        </option>
+                                    ))}
+                            </select>
+
+                            {/* Operator */}
+                            <select
+                                style={!cond.fieldId ? disabledSelectStyle : { ...selectStyle, flex: "0 0 auto" }}
+                                value={cond.operator}
+                                onChange={(e) => updateCondition(cond.id, { operator: e.target.value })}
+                                disabled={!cond.fieldId}
+                            >
+                                {ops.map((op) => (
+                                    <option key={op.id} value={op.id}>
+                                        {op.label}
+                                    </option>
+                                ))}
+                            </select>
+
+                            {/* Value */}
+                            {needsVal && (
+                                <input
+                                    type="text"
+                                    value={cond.value || ""}
+                                    placeholder="Value (optional)"
+                                    onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
+                                    style={{
+                                        padding: "5px 8px",
+                                        border: "1px solid #d0d4e4",
+                                        borderRadius: "4px",
+                                        fontSize: "12px",
+                                        fontFamily: "inherit",
+                                        flex: "1 1 0",
+                                        minWidth: 0,
+                                    }}
+                                />
+                            )}
+
+                            {/* Remove button */}
+                            <button
+                                type="button"
+                                onClick={() => removeCondition(cond.id)}
+                                title="Remove condition"
+                                style={{
+                                    background: "none",
+                                    border: "none",
+                                    cursor: "pointer",
+                                    color: "#c4402e",
+                                    padding: "4px",
+                                    borderRadius: "4px",
+                                    display: "flex",
+                                    alignItems: "center",
+                                    flexShrink: 0,
+                                }}
+                            >
+                                <Icon.Trash />
+                            </button>
+                        </div>
+
+                        {/* Config error — stale board/column reference */}
+                        {condErr && (
+                            <div
+                                style={{
+                                    display: "flex",
+                                    alignItems: "center",
+                                    gap: "6px",
+                                    padding: "5px 8px",
+                                    background: "#fff4f6",
+                                    border: "1px solid #fac0cb",
+                                    borderRadius: "4px",
+                                    color: "#b82020",
+                                    fontSize: "11px",
+                                    marginLeft: "24px",
+                                }}
+                            >
+                                ⚠ {condErr}
+                            </div>
+                        )}
+                    </div>
+                );
+            })}
+
+            {/* Add condition button */}
+            <button
+                type="button"
+                onClick={addCondition}
+                style={{
+                    display: "inline-flex",
+                    alignItems: "center",
+                    gap: "5px",
+                    padding: "5px 10px",
+                    border: "1px dashed #c4c4c4",
+                    borderRadius: "4px",
+                    background: "none",
+                    fontSize: "12px",
+                    color: "#676879",
+                    cursor: "pointer",
+                    alignSelf: "flex-start",
+                }}
+            >
+                <Icon.Plus /> Add Filter Condition
+            </button>
+
+            {/* Criteria expression — shown only when 2+ conditions */}
+            {conditions.length >= 2 && (
+                <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
+                    <label style={{ fontSize: "11px", fontWeight: 600, color: "#676879" }}>Logic expression</label>
+                    <input
+                        type="text"
+                        value={criteria}
+                        placeholder="e.g. 1 AND (2 OR 3)"
+                        onChange={(e) => onCriteriaChange(e.target.value)}
+                        style={{
+                            padding: "5px 8px",
+                            border: "1px solid #d0d4e4",
+                            borderRadius: "4px",
+                            fontSize: "12px",
+                            fontFamily: "var(--mono, monospace)",
+                        }}
+                    />
+                    <span style={{ fontSize: "11px", color: "#adb5c3" }}>
+                        Available:{" "}
+                        <code style={{ background: "#f5f6f8", border: "1px solid #e5e7ef", borderRadius: "3px", padding: "1px 4px" }}>
+                            {conditions.map((_, i) => i + 1).join(", ")}
+                        </code>{" "}
+                        · Use AND, OR, ( )
+                    </span>
+                </div>
+            )}
         </div>
     );
 }
@@ -903,15 +1360,14 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
 function FieldConfigModal({ col, configData, onSave, onClose }) {
     const colMeta = getTypeMeta(col.type);
     const showMaxValues = MAX_VALUES_TYPES.has(col.type);
-    const showMaxFiles  = MAX_FILES_TYPES.has(col.type);
+    const showMaxFiles = MAX_FILES_TYPES.has(col.type);
 
-    const [helptext,  setHelptext]  = useState(configData?.helptext  ?? "");
-    const [maxValues, setMaxValues] = useState(
-        configData?.maxValues !== undefined ? String(configData.maxValues) : "1000"
-    );
-    const [maxFiles,  setMaxFiles]  = useState(
-        configData?.maxFiles  !== undefined ? String(configData.maxFiles)  : "10"
-    );
+    const [helptext, setHelptext] = useState(configData?.helptext ?? "");
+    const showLookupFilters = col.type === "board_relation";
+    const [maxValues, setMaxValues] = useState(configData?.maxValues !== undefined ? String(configData.maxValues) : "1000");
+    const [maxFiles, setMaxFiles] = useState(configData?.maxFiles !== undefined ? String(configData.maxFiles) : "10");
+    const [lfConditions, setLfConditions] = useState(() => (configData?.lookup_filters?.conditions || []).map((c) => ({ ...c })));
+    const [lfCriteria, setLfCriteria] = useState(() => configData?.lookup_filters?.criteria || "ALL");
     const [error, setError] = useState("");
 
     const handleSave = () => {
@@ -930,10 +1386,46 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
                 return;
             }
         }
+        // Validate lookup filters
+        if (showLookupFilters && lfConditions.length > 0) {
+            for (let i = 0; i < lfConditions.length; i++) {
+                const c = lfConditions[i];
+                if (!c.boardId) {
+                    setError(`Lookup filter condition ${i + 1}: please select a board.`);
+                    return;
+                }
+                if (!c.fieldId) {
+                    setError(`Lookup filter condition ${i + 1}: please select a column.`);
+                    return;
+                }
+                if (!c.operator) {
+                    setError(`Lookup filter condition ${i + 1}: please select an operator.`);
+                    return;
+                }
+            }
+            if (lfConditions.length >= 2) {
+                const check = validateLookupCriteria(lfCriteria, lfConditions.length);
+                if (!check.valid) {
+                    setError(`Lookup filter logic: ${check.error}`);
+                    return;
+                }
+            }
+        }
         const cfg = {};
         if (helptext.trim()) cfg.helptext = helptext.trim();
-        if (showMaxValues)   cfg.maxValues = parseInt(maxValues, 10);
-        if (showMaxFiles)    cfg.maxFiles  = parseInt(maxFiles,  10);
+        if (showMaxValues) cfg.maxValues = parseInt(maxValues, 10);
+        if (showMaxFiles) cfg.maxFiles = parseInt(maxFiles, 10);
+        // Persist lookup_filters (null when no conditions so downstream code can check simply)
+        if (showLookupFilters) {
+            cfg.lookup_filters =
+                lfConditions.length > 0
+                    ? {
+                          conditions: lfConditions,
+                          criteria: lfConditions.length === 1 ? "ALL" : lfCriteria.trim().toUpperCase(),
+                      }
+                    : null;
+        }
+
         onSave(cfg);
     };
 
@@ -955,7 +1447,9 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
                             </span>
                         </div>
                     </div>
-                    <button className="fcm-close" onClick={onClose} title="Close"><Icon.Close /></button>
+                    <button className="fcm-close" onClick={onClose} title="Close">
+                        <Icon.Close />
+                    </button>
                 </div>
 
                 {/* Body */}
@@ -1015,6 +1509,24 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
                         </div>
                     )}
 
+                    {/* Lookup Filters — board_relation columns only */}
+                    {showLookupFilters && (
+                        <div className="fcm-field-group">
+                            <label className="fcm-label">
+                                <span className="fcm-label-icon">🔍</span>
+                                Lookup Filters
+                                <span className="fcm-label-hint">filter which records users can pick from linked boards</span>
+                            </label>
+                            <LookupFiltersSection
+                                col={col}
+                                conditions={lfConditions}
+                                onConditionsChange={setLfConditions}
+                                criteria={lfCriteria}
+                                onCriteriaChange={setLfCriteria}
+                            />
+                        </div>
+                    )}
+
                     {error && (
                         <div className="fcm-error">
                             <span>⚠️</span> {error}
@@ -1024,7 +1536,9 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
 
                 {/* Footer */}
                 <div className="fcm-footer">
-                    <button className="srm-btn-secondary" onClick={onClose}>Cancel</button>
+                    <button className="srm-btn-secondary" onClick={onClose}>
+                        Cancel
+                    </button>
                     <button className="srm-btn-primary" onClick={handleSave}>
                         <Icon.Check /> Save
                     </button>
@@ -2399,7 +2913,7 @@ export default function App() {
             const sectionsJson = serialiseSectionsJSON(
                 sections, requiredFields, readOnlyFields, sectionRules, fieldVisibilityRules, fieldConfigs
             );
-            
+
             const childBoardsJson = JSON.stringify(
                 placedChildBoards.map(({ boardId, label, columnId, columns }) => ({
                     boardId, label, columnId, columns: columns || [],
