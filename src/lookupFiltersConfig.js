@@ -78,6 +78,20 @@ export function makeLookupCondId() {
 }
 
 /**
+ * Validates if a board's lookup configuration is still valid.
+ * If a column is missing (checked against the provided columns list),
+ * the entire config for that board is ignored (Requirement 3b).
+ */
+export function isBoardLookupConfigValid(conditions, boardColumns) {
+    if (!conditions || conditions.length === 0) return true;
+    if (!boardColumns) return false;
+
+    const validColIds = new Set(boardColumns.map(c => c.id));
+    // If any condition references a non-existent column, the whole board filter is invalid
+    return conditions.every(cond => validColIds.has(cond.fieldId));
+}
+
+/**
  * Validate a criteria expression string for lookup filters.
  * Same rules as section visibility / field visibility expressions.
  *

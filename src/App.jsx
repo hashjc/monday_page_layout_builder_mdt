@@ -247,7 +247,12 @@ const rowsToFields = (rows, requiredSet, readOnlySet = new Set(), fieldVisRules 
             // is stored so the consumer can distinguish "not configured" vs "empty array")
             if (col.type === "board_relation") {
                 const lf = cfg.lookup_filters;
-                field.lookup_filters = lf && Array.isArray(lf.conditions) && lf.conditions.length > 0 ? lf : null;
+                if (Array.isArray(lf) && lf.length > 0) {
+                    const nonEmpty = lf.filter((bf) => bf.conditions && bf.conditions.length > 0);
+                    field.lookup_filters = nonEmpty.length > 0 ? nonEmpty : null;
+                } else {
+                    field.lookup_filters = null;
+                }
             }
 
             return field;
@@ -350,8 +355,7 @@ function deserialiseSectionsJSON(raw, columnsMap) {
                             criteria: fieldDef.visibilityRules.criteria || "ALL",
                         };
                     }
-                    if (fieldDef?.lookup_filters)
-                        cfg.lookup_filters = fieldDef.lookup_filters;
+                    if (fieldDef?.lookup_filters) cfg.lookup_filters = fieldDef.lookup_filters;
                 }),
             );
 
@@ -1029,325 +1033,160 @@ function FieldOptionsModal({ col, isRequired, isReadOnly, onSave, onClose }) {
     );
 }
 
-function LookupFiltersSection({
-    col, // the board_relation column object (needs settings_str)
-    conditions, // [{ id, boardId, source, fieldId, operator, value }]
-    onConditionsChange, // React state setter for conditions array
-    criteria, // string: "ALL" | free-form expression
-    onCriteriaChange, // setter for criteria string
-}) {
-    // ── Extract linked board IDs from column settings ──────────────────────
+function LookupFiltersSection({ col, configData, onLookupChange }) {
     const linkedBoardIds = React.useMemo(() => {
         try {
             const s = JSON.parse(col.settings_str || "{}");
-            const raw = s.boardIds?.length ? s.boardIds : s.boardId ? [s.boardId] : [];
-            return raw.map(String);
+            return (s.boardIds?.length ? s.boardIds : s.boardId ? [s.boardId] : []).map(String);
         } catch {
             return [];
         }
     }, [col.settings_str]);
 
-    // ── Per-board column + name cache ──────────────────────────────────────
-    // boardColumnsMap: { [boardId]: columns[] }  — null means fetch failed
-    // boardNamesMap:   { [boardId]: string }
-    const [boardColumnsMap, setBoardColumnsMap] = useState({});
-    const [boardNamesMap, setBoardNamesMap] = useState({});
-    const [fetchingBoards, setFetchingBoards] = useState(false);
+    const [boardData, setBoardData] = useState({}); // { [bid]: { columns, name, loading } }
+    const [expandedBoard, setExpandedBoard] = useState(linkedBoardIds[0] || null);
 
-    useEffect(() => {
-        if (!linkedBoardIds.length) return;
-        setFetchingBoards(true);
-        Promise.all(linkedBoardIds.map((bid) => getBoardColumns(bid).then((res) => ({ bid, res })))).then((results) => {
-            const colsMap = {},
-                namesMap = {};
-            results.forEach(({ bid, res }) => {
-                colsMap[bid] = res.success ? res.columns : null;
-                namesMap[bid] = res.success ? res.boardName || `Board ${bid}` : `Board ${bid}`;
-            });
-            setBoardColumnsMap(colsMap);
-            setBoardNamesMap(namesMap);
-            setFetchingBoards(false);
+    // lookupState: { [boardId]: { conditions: [], criteria: "ALL" } }
+    const [lookupState, setLookupState] = useState(() => {
+        const initialState = {};
+        linkedBoardIds.forEach((bid) => {
+            const existing = Array.isArray(configData?.lookup_filters) ? configData.lookup_filters.find((f) => String(f.boardId) === bid) : null;
+
+            initialState[bid] = existing ? { ...existing } : { boardId: bid, conditions: [], criteria: "ALL" };
         });
-    }, []); // runs once per modal open — linked boards don't change mid-session
-
-    // ── Condition helpers ──────────────────────────────────────────────────
-    const makeCond = () => ({
-        id: makeLookupCondId(),
-        boardId: linkedBoardIds.length === 1 ? linkedBoardIds[0] : "",
-        source: "field",
-        fieldId: "",
-        operator: "==",
-        value: "",
+        return initialState;
     });
 
-    const addCondition = () => onConditionsChange((prev) => [...prev, makeCond()]);
-    const removeCondition = (id) => onConditionsChange((prev) => prev.filter((c) => c.id !== id));
+    useEffect(() => {
+        linkedBoardIds.forEach((bid) => {
+            if (boardData[bid]) return;
+            setBoardData((prev) => ({ ...prev, [bid]: { loading: true } }));
+            getBoardColumns(bid).then((res) => {
+                setBoardData((prev) => ({
+                    ...prev,
+                    [bid]: {
+                        loading: false,
+                        columns: res.success ? res.columns : null,
+                        name: res.success ? res.boardName : `Board ${bid}`,
+                    },
+                }));
+            });
+        });
+    }, [linkedBoardIds]);
 
-    const updateCondition = (id, patch) => {
-        onConditionsChange((prev) =>
-            prev.map((c) => {
-                if (c.id !== id) return c;
-                const updated = { ...c, ...patch };
-                // Board changed → reset dependent fields
-                if ("boardId" in patch) {
-                    updated.fieldId = "";
-                    updated.operator = "==";
-                    updated.value = "";
-                }
-                // Column changed → snap operator to first valid op for new column type
-                if ("fieldId" in patch) {
-                    const cols = boardColumnsMap[updated.boardId] || [];
-                    const srcCol = cols.find((sc) => sc.id === patch.fieldId);
-                    const ops = getLookupOperatorsForType(srcCol?.type || "text");
-                    updated.operator = ops[0]?.id || "==";
-                    updated.value = "";
-                }
-                // Operator changed and new op needs no value → clear value
-                if ("operator" in patch && !lookupOperatorNeedsValue(patch.operator)) {
-                    updated.value = "";
-                }
-                return updated;
-            }),
-        );
+    // Notify parent whenever local state changes
+    useEffect(() => {
+        onLookupChange(lookupState);
+    }, [lookupState]);
+
+    const updateBoardLookup = (bid, patch) => {
+        setLookupState((prev) => ({
+            ...prev,
+            [bid]: { ...prev[bid], ...patch },
+        }));
     };
 
-    // ── Config error detection (stale boardId / fieldId) ──────────────────
-    const getConditionError = (cond) => {
-        if (!cond.boardId) return null;
-        if (!linkedBoardIds.includes(String(cond.boardId))) {
-            return `Board "${cond.boardId}" is no longer connected to this column.`;
-        }
-        const cols = boardColumnsMap[String(cond.boardId)];
-        if (cols === null) {
-            return `Cannot load columns for board "${boardNamesMap[cond.boardId] || cond.boardId}".`;
-        }
-        if (Array.isArray(cols) && cond.fieldId && !cols.find((c) => c.id === cond.fieldId)) {
-            return `Column "${cond.fieldId}" no longer exists in this board.`;
-        }
-        return null;
-    };
-
-    // ── Render ─────────────────────────────────────────────────────────────
-    if (!linkedBoardIds.length) {
-        return <p style={{ fontSize: "12px", color: "#adb5c3", margin: "4px 0" }}>No boards are connected to this column yet.</p>;
-    }
+    if (!linkedBoardIds.length) return <p className="fcm-label-hint">No boards connected.</p>;
 
     return (
-        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
-            {fetchingBoards && <p style={{ fontSize: "12px", color: "#676879" }}>Loading board columns…</p>}
+        <div style={{ display: "flex", flexDirection: "column", gap: "10px", marginTop: "10px" }}>
+            {linkedBoardIds.map((bid) => {
+                const data = boardData[bid] || { loading: true };
+                const state = lookupState[bid] || { conditions: [], criteria: "ALL" };
+                const isExpanded = expandedBoard === bid;
 
-            {!fetchingBoards && conditions.length === 0 && (
-                <p style={{ fontSize: "12px", color: "#adb5c3", margin: "4px 0" }}>No filters — all records from linked boards will be shown.</p>
-            )}
-
-            {/* Condition rows */}
-            {conditions.map((cond, idx) => {
-                const condErr = getConditionError(cond);
-                const boardCols = cond.boardId ? boardColumnsMap[String(cond.boardId)] || [] : [];
-                const srcCol = Array.isArray(boardCols) ? boardCols.find((c) => c.id === cond.fieldId) : null;
-                const ops = getLookupOperatorsForType(srcCol?.type || "text");
-                const needsVal = lookupOperatorNeedsValue(cond.operator);
-
-                const selectStyle = {
-                    padding: "5px 8px",
-                    border: "1px solid #d0d4e4",
-                    borderRadius: "4px",
-                    fontSize: "12px",
-                    fontFamily: "inherit",
-                    background: "#fff",
-                    cursor: "pointer",
-                    flex: "1 1 0",
-                    minWidth: 0,
-                };
-                const disabledSelectStyle = { ...selectStyle, background: "#f5f6f8", cursor: "not-allowed", color: "#adb5c3" };
+                // Skip if board was un-connected (Requirement 3a)
+                if (data.columns === null && !data.loading) return null;
 
                 return (
-                    <div key={cond.id} style={{ display: "flex", flexDirection: "column", gap: "4px" }}>
-                        <div style={{ display: "flex", alignItems: "center", gap: "6px", flexWrap: "wrap" }}>
-                            {/* Condition number */}
-                            <span
-                                style={{
-                                    minWidth: "18px",
-                                    height: "18px",
-                                    borderRadius: "50%",
-                                    background: "#e8eaf0",
-                                    color: "#676879",
-                                    fontSize: "11px",
-                                    fontWeight: 700,
-                                    display: "flex",
-                                    alignItems: "center",
-                                    justifyContent: "center",
-                                    flexShrink: 0,
-                                }}
-                            >
-                                {idx + 1}
+                    <div key={bid} style={{ border: "1px solid #e8eaf0", borderRadius: "8px", overflow: "hidden" }}>
+                        <div
+                            onClick={() => setExpandedBoard(isExpanded ? null : bid)}
+                            style={{
+                                padding: "8px 12px",
+                                background: "#f8f9fc",
+                                cursor: "pointer",
+                                display: "flex",
+                                justifyContent: "space-between",
+                                alignItems: "center",
+                            }}
+                        >
+                            <span style={{ fontSize: "13px", fontWeight: 600 }}>{data.name || bid}</span>
+                            <span style={{ fontSize: "11px", color: state.conditions.length > 0 ? "#0073ea" : "#adb5c3" }}>
+                                {state.conditions.length} filters {isExpanded ? "▲" : "▼"}
                             </span>
-
-                            {/* Board selector */}
-                            <select style={selectStyle} value={cond.boardId} onChange={(e) => updateCondition(cond.id, { boardId: e.target.value })}>
-                                <option value="">— Board —</option>
-                                {linkedBoardIds.map((bid) => (
-                                    <option key={bid} value={bid}>
-                                        {boardNamesMap[bid] || `Board ${bid}`}
-                                    </option>
-                                ))}
-                            </select>
-
-                            {/* Source — fixed label */}
-                            <span
-                                style={{
-                                    padding: "3px 8px",
-                                    background: "#e8eaf0",
-                                    borderRadius: "4px",
-                                    fontSize: "11px",
-                                    fontWeight: 600,
-                                    color: "#676879",
-                                    flexShrink: 0,
-                                    whiteSpace: "nowrap",
-                                }}
-                            >
-                                field
-                            </span>
-
-                            {/* Column selector */}
-                            <select
-                                style={!cond.boardId || !Array.isArray(boardColumnsMap[cond.boardId]) ? disabledSelectStyle : selectStyle}
-                                value={cond.fieldId}
-                                onChange={(e) => updateCondition(cond.id, { fieldId: e.target.value })}
-                                disabled={!cond.boardId || !Array.isArray(boardColumnsMap[cond.boardId])}
-                            >
-                                <option value="">— Column —</option>
-                                {Array.isArray(boardCols) &&
-                                    boardCols.map((c) => (
-                                        <option key={c.id} value={c.id}>
-                                            {c.title}
-                                        </option>
-                                    ))}
-                            </select>
-
-                            {/* Operator */}
-                            <select
-                                style={!cond.fieldId ? disabledSelectStyle : { ...selectStyle, flex: "0 0 auto" }}
-                                value={cond.operator}
-                                onChange={(e) => updateCondition(cond.id, { operator: e.target.value })}
-                                disabled={!cond.fieldId}
-                            >
-                                {ops.map((op) => (
-                                    <option key={op.id} value={op.id}>
-                                        {op.label}
-                                    </option>
-                                ))}
-                            </select>
-
-                            {/* Value */}
-                            {needsVal && (
-                                <input
-                                    type="text"
-                                    value={cond.value || ""}
-                                    placeholder="Value (optional)"
-                                    onChange={(e) => updateCondition(cond.id, { value: e.target.value })}
-                                    style={{
-                                        padding: "5px 8px",
-                                        border: "1px solid #d0d4e4",
-                                        borderRadius: "4px",
-                                        fontSize: "12px",
-                                        fontFamily: "inherit",
-                                        flex: "1 1 0",
-                                        minWidth: 0,
-                                    }}
-                                />
-                            )}
-
-                            {/* Remove button */}
-                            <button
-                                type="button"
-                                onClick={() => removeCondition(cond.id)}
-                                title="Remove condition"
-                                style={{
-                                    background: "none",
-                                    border: "none",
-                                    cursor: "pointer",
-                                    color: "#c4402e",
-                                    padding: "4px",
-                                    borderRadius: "4px",
-                                    display: "flex",
-                                    alignItems: "center",
-                                    flexShrink: 0,
-                                }}
-                            >
-                                <Icon.Trash />
-                            </button>
                         </div>
 
-                        {/* Config error — stale board/column reference */}
-                        {condErr && (
-                            <div
-                                style={{
-                                    display: "flex",
-                                    alignItems: "center",
-                                    gap: "6px",
-                                    padding: "5px 8px",
-                                    background: "#fff4f6",
-                                    border: "1px solid #fac0cb",
-                                    borderRadius: "4px",
-                                    color: "#b82020",
-                                    fontSize: "11px",
-                                    marginLeft: "24px",
-                                }}
-                            >
-                                ⚠ {condErr}
+                        {isExpanded && (
+                            <div style={{ padding: "12px", borderTop: "1px solid #e8eaf0" }}>
+                                <LookupConditionBuilder
+                                    boardId={bid}
+                                    columns={data.columns || []}
+                                    state={state}
+                                    onChange={(patch) => updateBoardLookup(bid, patch)}
+                                />
                             </div>
                         )}
                     </div>
                 );
             })}
+        </div>
+    );
+}
 
-            {/* Add condition button */}
-            <button
-                type="button"
-                onClick={addCondition}
-                style={{
-                    display: "inline-flex",
-                    alignItems: "center",
-                    gap: "5px",
-                    padding: "5px 10px",
-                    border: "1px dashed #c4c4c4",
-                    borderRadius: "4px",
-                    background: "none",
-                    fontSize: "12px",
-                    color: "#676879",
-                    cursor: "pointer",
-                    alignSelf: "flex-start",
-                }}
-            >
-                <Icon.Plus /> Add Filter Condition
-            </button>
+// Internal helper for the rows (Requirement 1a)
+function LookupConditionBuilder({ boardId, columns, state, onChange }) {
+    const addCond = () => {
+        const newCond = { id: makeLookupCondId(), source: "field", fieldId: columns[0]?.id || "", operator: "==", value: "" };
+        onChange({ conditions: [...state.conditions, newCond] });
+    };
 
-            {/* Criteria expression — shown only when 2+ conditions */}
-            {conditions.length >= 2 && (
-                <div style={{ display: "flex", flexDirection: "column", gap: "4px", marginTop: "4px" }}>
-                    <label style={{ fontSize: "11px", fontWeight: 600, color: "#676879" }}>Logic expression</label>
-                    <input
-                        type="text"
-                        value={criteria}
-                        placeholder="e.g. 1 AND (2 OR 3)"
-                        onChange={(e) => onCriteriaChange(e.target.value)}
-                        style={{
-                            padding: "5px 8px",
-                            border: "1px solid #d0d4e4",
-                            borderRadius: "4px",
-                            fontSize: "12px",
-                            fontFamily: "var(--mono, monospace)",
-                        }}
-                    />
-                    <span style={{ fontSize: "11px", color: "#adb5c3" }}>
-                        Available:{" "}
-                        <code style={{ background: "#f5f6f8", border: "1px solid #e5e7ef", borderRadius: "3px", padding: "1px 4px" }}>
-                            {conditions.map((_, i) => i + 1).join(", ")}
-                        </code>{" "}
-                        · Use AND, OR, ( )
-                    </span>
+    const updateCond = (id, patch) => {
+        const next = state.conditions.map((c) => (c.id === id ? { ...c, ...patch } : c));
+        onChange({ conditions: next });
+    };
+
+    return (
+        <div style={{ display: "flex", flexDirection: "column", gap: "8px" }}>
+            {state.conditions.map((c, idx) => (
+                <div key={c.id} style={{ display: "flex", gap: "6px", alignItems: "center" }}>
+                    <span style={{ fontSize: "11px", fontWeight: 700, color: "#adb5c3", width: "15px" }}>{idx + 1}</span>
+                    <select className="fcm-input" value={c.fieldId} onChange={(e) => updateCond(c.id, { fieldId: e.target.value })}>
+                        {columns.map((col) => (
+                            <option key={col.id} value={col.id}>
+                                {col.title}
+                            </option>
+                        ))}
+                    </select>
+                    <select
+                        className="fcm-input"
+                        style={{ width: "100px" }}
+                        value={c.operator}
+                        onChange={(e) => updateCond(c.id, { operator: e.target.value })}
+                    >
+                        {getLookupOperatorsForType(columns.find((col) => col.id === c.fieldId)?.type || "text").map((op) => (
+                            <option key={op.id} value={op.id}>
+                                {op.label}
+                            </option>
+                        ))}
+                    </select>
+                    <input className="fcm-input" value={c.value} onChange={(e) => updateCond(c.id, { value: e.target.value })} placeholder="Value" />
+                    <button className="ls-btn danger" onClick={() => onChange({ conditions: state.conditions.filter((x) => x.id !== c.id) })}>
+                        <Icon.Trash />
+                    </button>
                 </div>
+            ))}
+            <button className="vrm-add-row-btn" onClick={addCond} style={{ marginTop: "5px" }}>
+                <Icon.Plus /> Add Filter
+            </button>
+            {state.conditions.length >= 2 && (
+                <input
+                    className="fcm-input"
+                    style={{ marginTop: "8px", fontFamily: "var(--mono)" }}
+                    placeholder="Logic (e.g. 1 AND 2)"
+                    value={state.criteria}
+                    onChange={(e) => onChange({ criteria: e.target.value })}
+                />
             )}
         </div>
     );
@@ -1363,15 +1202,16 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
     const showMaxFiles = MAX_FILES_TYPES.has(col.type);
 
     const [helptext, setHelptext] = useState(configData?.helptext ?? "");
+    const [tempLookupState, setTempLookupState] = useState({});
     const showLookupFilters = col.type === "board_relation";
     const [maxValues, setMaxValues] = useState(configData?.maxValues !== undefined ? String(configData.maxValues) : "1000");
     const [maxFiles, setMaxFiles] = useState(configData?.maxFiles !== undefined ? String(configData.maxFiles) : "10");
-    const [lfConditions, setLfConditions] = useState(() => (configData?.lookup_filters?.conditions || []).map((c) => ({ ...c })));
-    const [lfCriteria, setLfCriteria] = useState(() => configData?.lookup_filters?.criteria || "ALL");
     const [error, setError] = useState("");
 
     const handleSave = () => {
         setError("");
+
+        // 1. Existing Validation for Max Values/Files
         if (showMaxValues) {
             const n = parseInt(maxValues, 10);
             if (!maxValues || isNaN(n) || n < 1 || n > 1000) {
@@ -1386,45 +1226,38 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
                 return;
             }
         }
-        // Validate lookup filters
-        if (showLookupFilters && lfConditions.length > 0) {
-            for (let i = 0; i < lfConditions.length; i++) {
-                const c = lfConditions[i];
-                if (!c.boardId) {
-                    setError(`Lookup filter condition ${i + 1}: please select a board.`);
-                    return;
-                }
-                if (!c.fieldId) {
-                    setError(`Lookup filter condition ${i + 1}: please select a column.`);
-                    return;
-                }
-                if (!c.operator) {
-                    setError(`Lookup filter condition ${i + 1}: please select an operator.`);
-                    return;
-                }
-            }
-            if (lfConditions.length >= 2) {
-                const check = validateLookupCriteria(lfCriteria, lfConditions.length);
-                if (!check.valid) {
-                    setError(`Lookup filter logic: ${check.error}`);
-                    return;
-                }
-            }
-        }
-        const cfg = {};
-        if (helptext.trim()) cfg.helptext = helptext.trim();
-        if (showMaxValues) cfg.maxValues = parseInt(maxValues, 10);
-        if (showMaxFiles) cfg.maxFiles = parseInt(maxFiles, 10);
-        // Persist lookup_filters (null when no conditions so downstream code can check simply)
+
+        // 2. NEW: Process lookup_filters from grouped tempLookupState
+        let finalLookupFilters = null;
         if (showLookupFilters) {
-            cfg.lookup_filters =
-                lfConditions.length > 0
-                    ? {
-                          conditions: lfConditions,
-                          criteria: lfConditions.length === 1 ? "ALL" : lfCriteria.trim().toUpperCase(),
-                      }
-                    : null;
+            const filterArray = [];
+
+            // Iterate through each board's config in the temporary state
+            Object.entries(tempLookupState).forEach(([bid, config]) => {
+                // Only save if the board has conditions defined (Requirement 1b)
+                if (config.conditions && config.conditions.length > 0) {
+                    // Optional: Perform validation here (e.g. check if columnId is filled)
+                    // If any board filter is invalid, you can set error and return.
+
+                    filterArray.push({
+                        boardId: bid,
+                        conditions: config.conditions,
+                        criteria: config.conditions.length === 1 ? "ALL" : (config.criteria || "ALL").toUpperCase(),
+                    });
+                }
+            });
+
+            if (filterArray.length > 0) {
+                finalLookupFilters = filterArray;
+            }
         }
+        // 3. Prepare Config Object
+        const cfg = {
+            helptext: helptext.trim(),
+            ...(showMaxValues && { maxValues: parseInt(maxValues, 10) }),
+            ...(showMaxFiles && { maxFiles: parseInt(maxFiles, 10) }),
+            lookup_filters: finalLookupFilters, // Saves as an Array of Objects (Requirement 2)
+        };
 
         onSave(cfg);
     };
@@ -1517,13 +1350,7 @@ function FieldConfigModal({ col, configData, onSave, onClose }) {
                                 Lookup Filters
                                 <span className="fcm-label-hint">filter which records users can pick from linked boards</span>
                             </label>
-                            <LookupFiltersSection
-                                col={col}
-                                conditions={lfConditions}
-                                onConditionsChange={setLfConditions}
-                                criteria={lfCriteria}
-                                onCriteriaChange={setLfCriteria}
-                            />
+                            <LookupFiltersSection col={col} configData={configData} onLookupChange={setTempLookupState} />
                         </div>
                     )}
 
